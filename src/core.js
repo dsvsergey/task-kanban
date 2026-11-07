@@ -150,7 +150,36 @@ function findTask(tasksRoot, stages, id) {
 
 // ---------- перенесення ----------
 
-function moveTask(tasksRoot, stages, id, toDir) {
+const LOCK_CODES = new Set(['EBUSY', 'EPERM', 'EACCES']);
+
+/**
+ * rename з повторами: у Windows каталог не перейменовується, поки хтось тримає в ньому файл
+ * (антивірус, індексатор — зазвичай на мить; термінал/Провідник у цьому каталозі — постійно).
+ */
+async function renameWithRetry(src, dst, { attempts = 12, delayMs = 250 } = {}) {
+  for (let i = 1; ; i++) {
+    try {
+      fs.renameSync(src, dst);
+      return;
+    } catch (e) {
+      if (!LOCK_CODES.has(e.code) || i >= attempts) {
+        if (LOCK_CODES.has(e.code)) {
+          const err = new Error(
+            `каталог ${src} зайнятий іншим процесом (${e.code}). Закрийте термінал, Провідник або програму, ` +
+              `відкриті в ньому чи на його файлах, і повторіть.`,
+          );
+          err.code = 'LOCKED';
+          err.cause = e;
+          throw err;
+        }
+        throw e;
+      }
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+}
+
+async function moveTask(tasksRoot, stages, id, toDir, retry) {
   const task = findTask(tasksRoot, stages, id);
   if (!task) throw new Error(`Задачу ${id} не знайдено в ${tasksRoot}`);
   const stage = stages.find((s) => s.dir === toDir);
@@ -161,7 +190,7 @@ function moveTask(tasksRoot, stages, id, toDir) {
   const dst = path.join(dstParent, id);
   if (fs.existsSync(dst)) throw new Error(`Каталог ${dst} уже існує`);
   fs.mkdirSync(dstParent, { recursive: true });
-  fs.renameSync(task.dir, dst);
+  await renameWithRetry(task.dir, dst, retry);
 
   let statusUpdated = false;
   const moved = readTask(dst, id, toDir);
@@ -358,6 +387,7 @@ module.exports = {
   scanTasks,
   findTask,
   moveTask,
+  renameWithRetry,
   createTask,
   matchTransitions,
   fill,

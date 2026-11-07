@@ -51,7 +51,7 @@ test('заголовок картки береться з Description', () => {
   assert.equal(core.readTitle('# Task 3\n\n- **Статус:** x\n\nПросто текст\n'), 'Просто текст');
 });
 
-test('сканування, перенесення і статус', () => {
+test('сканування, перенесення і статус', async () => {
   const root = tmp();
   const tasks = path.join(root, 'Tasks');
   write(path.join(tasks, '_template', 'task.md'), '# Task <номер>\n\n- **Статус:** нове\n');
@@ -69,7 +69,7 @@ test('сканування, перенесення і статус', () => {
   assert.equal(t20.zipVersion, 3);
   assert.equal(t20.title, 'Опис 20');
 
-  const res = core.moveTask(tasks, STAGES, '100', '3_work');
+  const res = await core.moveTask(tasks, STAGES, '100', '3_work');
   assert.equal(res.from, '1_new');
   assert.equal(res.statusUpdated, true);
   assert.ok(fs.existsSync(path.join(tasks, '3_work', '100', 'task.md')));
@@ -77,10 +77,10 @@ test('сканування, перенесення і статус', () => {
   assert.equal(core.readStatus(fs.readFileSync(path.join(tasks, '3_work', '100', 'task.md'), 'utf8')), 'в роботі');
 
   // без рядка статусу — переноситься, але статус не чіпається
-  const r2 = core.moveTask(tasks, STAGES, '20', '4_testing');
+  const r2 = await core.moveTask(tasks, STAGES, '20', '4_testing');
   assert.equal(r2.statusUpdated, false);
 
-  assert.throws(() => core.moveTask(tasks, STAGES, '999', '3_work'), /не знайдено/);
+  await assert.rejects(() => core.moveTask(tasks, STAGES, '999', '3_work'), /не знайдено/);
 
   const created = core.createTask(tasks, '_template', '1_new', '777');
   assert.equal(fs.readFileSync(created.taskFile, 'utf8'), '# Task 777\n\n- **Статус:** нове\n');
@@ -132,7 +132,7 @@ test('коміт: лише файли задачі, з переносом і к�
   write(path.join(code, 'src', 'uOTHER.pas'), 'new');
   g(code, 'add', 'src/uOTHER.pas'); // чуже проіндексоване — не має піти в коміт задачі
 
-  const moved = core.moveTask(tasks, STAGES, '42', '4_testing');
+  const moved = await core.moveTask(tasks, STAGES, '42', '4_testing');
   const vars = { number: '42', stage: '4_testing', workspaceFolder: add };
   const ctx = { workspaceFolder: add, task: moved.task, vars };
 
@@ -167,4 +167,28 @@ test('коміт: лише файли задачі, з переносом і к�
   const plain = tmp();
   const p = await core.collectCommit({ repo: plain, name: 'Ultra' }, ctx);
   assert.match(p.warning, /не git-репозиторій/);
+});
+
+test('зайнятий каталог: повтори, потім зрозуміла помилка (Windows)', { skip: process.platform !== 'win32' }, async () => {
+  const root = tmp();
+  const tasks = path.join(root, 'Tasks');
+  write(path.join(tasks, '1_new', '7', 'task.md'), '# Task 7\n\n- **Статус:** нове\n');
+  const prev = process.cwd();
+  // поточний каталог процесу в задачі — як відкритий там термінал
+  process.chdir(path.join(tasks, '1_new', '7'));
+  try {
+    await assert.rejects(
+      () => core.moveTask(tasks, STAGES, '7', '3_work', { attempts: 3, delayMs: 20 }),
+      (e) => e.code === 'LOCKED' && /зайнятий іншим процесом/.test(e.message),
+    );
+    assert.ok(fs.existsSync(path.join(tasks, '1_new', '7', 'task.md')), 'задача лишилась на місці');
+
+    // блокування зникає під час повторів — перенесення вдається
+    setTimeout(() => process.chdir(prev), 100);
+    const res = await core.moveTask(tasks, STAGES, '7', '3_work', { attempts: 20, delayMs: 50 });
+    assert.equal(res.moved, true);
+    assert.ok(fs.existsSync(path.join(tasks, '3_work', '7', 'task.md')));
+  } finally {
+    process.chdir(prev);
+  }
 });

@@ -168,7 +168,17 @@ async function move(ws, id, toDir) {
 
   setBusy(true);
   try {
-    const res = core.moveTask(ws.tasksRoot, ws.stages, id, toDir);
+    let res;
+    try {
+      res = await core.moveTask(ws.tasksRoot, ws.stages, id, toDir);
+    } catch (e) {
+      if (e.code === 'LOCKED') {
+        const terms = terminalsIn(task.dir);
+        const hint = terms.length ? ` Термінал у цьому каталозі: ${terms.join(', ')}.` : '';
+        throw new Error(`${id} не перенесено: ${e.message}${hint}`);
+      }
+      throw e;
+    }
     log(`${id}: ${res.from || '(без етапу)'} → ${toDir}${res.statusUpdated ? ', статус оновлено' : ''}`);
     if (stage.status && !res.statusUpdated && res.task.taskFile) {
       const text = fs.readFileSync(res.task.taskFile, 'utf8');
@@ -183,6 +193,18 @@ async function move(ws, id, toDir) {
   } finally {
     setBusy(false);
   }
+}
+
+/** Термінали VS Code, поточний каталог яких — усередині dir (потрібна інтеграція оболонки). */
+function terminalsIn(dir) {
+  const norm = (p) => path.resolve(p).toLowerCase() + path.sep;
+  const base = norm(dir);
+  const out = [];
+  for (const t of vscode.window.terminals) {
+    const cwd = t.shellIntegration && t.shellIntegration.cwd;
+    if (cwd && norm(cwd.fsPath).startsWith(base)) out.push(`«${t.name}»`);
+  }
+  return out;
 }
 
 async function runCommits(ws, task, stage, commitActions) {
