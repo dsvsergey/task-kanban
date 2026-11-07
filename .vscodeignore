@@ -1,0 +1,4 @@
+test/**
+.vscode/**
+install.ps1
+.gitignore

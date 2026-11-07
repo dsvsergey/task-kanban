@@ -1,0 +1,170 @@
+'use strict';
+// Запуск без Node у системі — через Node, вбудований у VS Code:
+//   ELECTRON_RUN_AS_NODE=1 "<VS Code>/Code.exe" --test test/
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync } = require('child_process');
+const core = require('../src/core');
+
+const STAGES = [
+  { dir: '1_new', title: 'Нове', status: 'нове' },
+  { dir: '3_work', title: 'В роботі', status: 'в роботі' },
+  { dir: '4_testing', title: 'На тестуванні', status: 'на тестуванні' },
+];
+
+function tmp() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'task-kanban-test-'));
+}
+function write(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text, 'utf8');
+}
+function g(cwd, ...args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' });
+}
+function initRepo(dir) {
+  g(dir, 'init', '-q');
+  g(dir, 'config', 'user.email', 'test@example.com');
+  g(dir, 'config', 'user.name', 'test');
+  g(dir, 'config', 'core.autocrlf', 'false');
+}
+
+test('статус: маркований рядок, коментар, заголовок, відсутній', () => {
+  const a = '# Task 1\r\n\r\n- **Статус:** review <!-- new | done -->\r\n- **Проекти:** Ultra\r\n';
+  assert.equal(core.readStatus(a), 'review');
+  const a2 = core.writeStatus(a, 'на тестуванні');
+  assert.equal(a2, '# Task 1\r\n\r\n- **Статус:** на тестуванні\r\n- **Проекти:** Ultra\r\n');
+
+  const b = '# Task 2\n\n## Статус\n\nreview — код готовий\n\n## Результат\n';
+  assert.equal(core.readStatus(b), 'review — код готовий');
+  assert.equal(core.writeStatus(b, 'готово'), '# Task 2\n\n## Статус\n\nготово\n\n## Результат\n');
+
+  assert.equal(core.writeStatus('# Task 3\n\n## Description\n\nтекст\n', 'нове'), null);
+});
+
+test('заголовок картки береться з Description', () => {
+  assert.equal(core.readTitle('# Task 1\n\n- **Статус:** x\n\n## Description\n\nПомилка в базі\nдругий рядок\nтретій\n'), 'Помилка в базі · другий рядок');
+  assert.equal(core.readTitle('# Task 2\n\n# Description\n\n## Інше\n'), '');
+  assert.equal(core.readTitle('# Task 3\n\n- **Статус:** x\n\nПросто текст\n'), 'Просто текст');
+});
+
+test('сканування, перенесення і статус', () => {
+  const root = tmp();
+  const tasks = path.join(root, 'Tasks');
+  write(path.join(tasks, '_template', 'task.md'), '# Task <номер>\n\n- **Статус:** нове\n');
+  write(path.join(tasks, '1_new', '100', 'task.md'), '# Task 100\n\n- **Статус:** нове\n\n## Description\n\nОпис 100\n');
+  write(path.join(tasks, '3_work', '20', '20_task.md'), '# Task 20\n\n## Description\n\nОпис 20\n');
+  write(path.join(tasks, '3_work', '20', 'path.sql'), 'select 1 from rdb$database;');
+  write(path.join(tasks, '3_work', '20', 'task_20.v1.zip'), '');
+  write(path.join(tasks, '3_work', '20', 'task_20.v3.zip'), '');
+  write(path.join(tasks, '555', 'task.md'), '# Task 555\n');
+
+  const list = core.scanTasks(tasks, STAGES);
+  assert.deepEqual(list.map((t) => `${t.stage}/${t.id}`), ['3_work/20', '1_new/100', '/555']);
+  const t20 = list[0];
+  assert.equal(t20.hasSql, true);
+  assert.equal(t20.zipVersion, 3);
+  assert.equal(t20.title, 'Опис 20');
+
+  const res = core.moveTask(tasks, STAGES, '100', '3_work');
+  assert.equal(res.from, '1_new');
+  assert.equal(res.statusUpdated, true);
+  assert.ok(fs.existsSync(path.join(tasks, '3_work', '100', 'task.md')));
+  assert.ok(!fs.existsSync(path.join(tasks, '1_new', '100')));
+  assert.equal(core.readStatus(fs.readFileSync(path.join(tasks, '3_work', '100', 'task.md'), 'utf8')), 'в роботі');
+
+  // без рядка статусу — переноситься, але статус не чіпається
+  const r2 = core.moveTask(tasks, STAGES, '20', '4_testing');
+  assert.equal(r2.statusUpdated, false);
+
+  assert.throws(() => core.moveTask(tasks, STAGES, '999', '3_work'), /не знайдено/);
+
+  const created = core.createTask(tasks, '_template', '1_new', '777');
+  assert.equal(fs.readFileSync(created.taskFile, 'utf8'), '# Task 777\n\n- **Статус:** нове\n');
+  assert.throws(() => core.createTask(tasks, '_template', '1_new', '777'), /уже існує/);
+  assert.throws(() => core.createTask(tasks, '_template', '1_new', '../x'), /Недопустимий/);
+});
+
+test('переходи і перевірка файлів', () => {
+  const tr = [
+    { from: '*', to: '4_testing', actions: [{ type: 'check', files: ['path.sql'] }] },
+    { from: '3_work', to: '4_testing', actions: [{ type: 'commit' }] },
+    { to: '*', actions: [{ type: 'commit', name: 'all' }] },
+  ];
+  assert.equal(core.matchTransitions(tr, '3_work', '4_testing').length, 3);
+  assert.equal(core.matchTransitions(tr, '1_new', '4_testing').length, 2);
+  assert.equal(core.matchTransitions(tr, '1_new', '3_work').length, 1);
+
+  const dir = tmp();
+  write(path.join(dir, 'task_1.v2.zip'), '');
+  assert.deepEqual(core.missingFiles(dir, ['path.sql', 'task_*.zip']), ['path.sql']);
+  assert.equal(core.fill('${workspaceFolder}/{number} {x}', { workspaceFolder: 'W', number: 7 }), 'W/7 {x}');
+});
+
+test('коміт: лише файли задачі, з переносом і кодом з іншого репозиторію', async () => {
+  const add = tmp();
+  initRepo(add);
+  const tasks = path.join(add, 'Tasks');
+  write(path.join(tasks, '3_work', '42', 'task.md'), '# Task 42\n\n- **Статус:** в роботі\n');
+  write(path.join(tasks, '3_work', '42', 'delphi', 'uFORM.pas'), 'unit uFORM;');
+  write(path.join(tasks, '3_work', '42', 'delphi', 'uFORM.dfm'), 'object');
+  write(path.join(add, 'Obsidian', 'Tasks', '42.md'), 'нотатка');
+  write(path.join(add, 'Obsidian', 'Modules', 'Other.md'), 'інше');
+  g(add, 'add', '-A');
+  g(add, 'commit', '-qm', 'init');
+
+  const code = tmp();
+  initRepo(code);
+  write(path.join(code, 'src', 'uFORM.pas'), 'old');
+  write(path.join(code, 'src', 'uFORM.dfm'), 'old');
+  write(path.join(code, 'src', 'uOTHER.pas'), 'old');
+  g(code, 'add', '-A');
+  g(code, 'commit', '-qm', 'init');
+
+  // зміни: задача, її нотатка, чужа нотатка (не має потрапити), код задачі і чужий код
+  write(path.join(tasks, '3_work', '42', 'path.sql'), 'select 1;');
+  write(path.join(add, 'Obsidian', 'Tasks', '42.md'), 'нотатка 2');
+  write(path.join(add, 'Obsidian', 'Modules', 'Other.md'), 'інше 2');
+  write(path.join(code, 'src', 'uFORM.pas'), 'new');
+  write(path.join(code, 'src', 'uOTHER.pas'), 'new');
+  g(code, 'add', 'src/uOTHER.pas'); // чуже проіндексоване — не має піти в коміт задачі
+
+  const moved = core.moveTask(tasks, STAGES, '42', '4_testing');
+  const vars = { number: '42', stage: '4_testing', workspaceFolder: add };
+  const ctx = { workspaceFolder: add, task: moved.task, vars };
+
+  const a = await core.collectCommit({ paths: ['Tasks/*/{number}/**', 'Obsidian/Tasks/{number}.md'] }, ctx);
+  const aPaths = a.files.map((f) => f.path).sort();
+  assert.deepEqual(aPaths, [
+    'Obsidian/Tasks/42.md',
+    'Tasks/3_work/42/delphi/uFORM.dfm',
+    'Tasks/3_work/42/delphi/uFORM.pas',
+    'Tasks/3_work/42/task.md',
+    'Tasks/4_testing/42/delphi/uFORM.dfm',
+    'Tasks/4_testing/42/delphi/uFORM.pas',
+    'Tasks/4_testing/42/path.sql',
+    'Tasks/4_testing/42/task.md',
+  ]);
+
+  const c = await core.collectCommit({ repo: code, sourceDir: 'delphi', name: 'code' }, ctx);
+  assert.deepEqual(c.files.map((f) => f.path), ['src/uFORM.pas']);
+
+  const h1 = await core.commitFiles(a.repo, aPaths, '42');
+  const h2 = await core.commitFiles(c.repo, ['src/uFORM.pas'], '42');
+  assert.ok(h1 && h2);
+
+  // у UltraAdd лишилась тільки чужа нотатка, у коді — тільки чужий проіндексований файл
+  assert.equal(g(add, 'status', '--porcelain').trim(), 'M Obsidian/Modules/Other.md');
+  assert.equal(g(code, 'status', '--porcelain').trim(), 'M  src/uOTHER.pas');
+  assert.equal(g(add, 'log', '-1', '--format=%s').trim(), '42');
+  const renamed = g(add, 'show', '--name-status', '-M', '--format=', 'HEAD');
+  assert.match(renamed, /R100\tTasks\/3_work\/42\/delphi\/uFORM\.pas\tTasks\/4_testing\/42\/delphi\/uFORM\.pas/);
+
+  // не git
+  const plain = tmp();
+  const p = await core.collectCommit({ repo: plain, name: 'Ultra' }, ctx);
+  assert.match(p.warning, /не git-репозиторій/);
+});

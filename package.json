@@ -1,0 +1,151 @@
+{
+  "name": "task-kanban",
+  "displayName": "Task Kanban",
+  "description": "Канбан-дошка задач для супровідних каталогів <Name>Add: колонки = каталоги Tasks/<етап>/, перетягування переносить задачу і комітить її файли.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "workspaceContains:Tasks/_template"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "taskKanban.open",
+        "title": "Відкрити дошку",
+        "category": "Task Kanban",
+        "icon": "$(project)"
+      },
+      {
+        "command": "taskKanban.newTask",
+        "title": "Нова задача",
+        "category": "Task Kanban"
+      },
+      {
+        "command": "taskKanban.refresh",
+        "title": "Оновити дошку",
+        "category": "Task Kanban"
+      }
+    ],
+    "configuration": {
+      "title": "Task Kanban",
+      "properties": {
+        "taskKanban.tasksDir": {
+          "type": "string",
+          "default": "Tasks",
+          "description": "Каталог задач відносно кореня робочої області."
+        },
+        "taskKanban.templateDir": {
+          "type": "string",
+          "default": "_template",
+          "description": "Шаблон каталогу нової задачі (усередині tasksDir)."
+        },
+        "taskKanban.stages": {
+          "type": "array",
+          "description": "Етапи (колонки) у порядку відображення. dir — підкаталог tasksDir, status — значення рядка «Статус» у task.md.",
+          "items": {
+            "type": "object",
+            "required": [
+              "dir"
+            ],
+            "properties": {
+              "dir": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "collapsed": {
+                "type": "boolean",
+                "description": "Колонка згорнута за замовчуванням."
+              }
+            }
+          },
+          "default": [
+            { "dir": "1_new", "title": "Нове", "status": "нове" },
+            { "dir": "2_queue", "title": "В черзі", "status": "в черзі" },
+            { "dir": "3_work", "title": "В роботі", "status": "в роботі" },
+            { "dir": "4_testing", "title": "На тестуванні", "status": "на тестуванні" },
+            { "dir": "5_done", "title": "Готово", "status": "готово", "collapsed": true }
+          ]
+        },
+        "taskKanban.commitMessage": {
+          "type": "string",
+          "default": "{number}",
+          "description": "Повідомлення коміту. Підстановки: {number}, {stage}, {status}, {title}."
+        },
+        "taskKanban.transitions": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Дії при перенесенні задачі. `from`/`to` — `dir` етапу або `*`. Дії: `check` (перед перенесенням: попередити, якщо в каталозі задачі немає файлів за масками `files`), `commit` (після перенесення: закомітити файли задачі в репозиторій `repo`; `paths` — git-маски відносно репозиторію, `sourceDir` — підкаталог задачі, файли з якого шукаються в репозиторії за іменем). Підстановки: `{number}`, `{stage}`, `${workspaceFolder}`.",
+          "items": {
+            "type": "object",
+            "required": [
+              "to",
+              "actions"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "default": "*"
+              },
+              "to": {
+                "type": "string"
+              },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "check",
+                        "commit"
+                      ]
+                    },
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "repo": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "sourceDir": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
