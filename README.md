@@ -1,110 +1,127 @@
 # Task Kanban
 
-Розширення VS Code: канбан-дошка задач для супровідних каталогів `<Name>Add`
-(див. `D:\nprojects\UltraAdd\README.md`). Колонки — каталоги етапів `Tasks/<етап>/`, картки — каталоги задач
-`Tasks/<етап>/<номер>/`. Перетягування картки переносить каталог задачі, оновлює рядок «Статус» у `task.md`
-і запускає налаштовані дії: перевірку файлів і коміт файлів задачі.
+**English** | [Українська](README.uk.md)
 
-Чистий JavaScript без залежностей і без збірки — VS Code завантажує каталог як є.
+A VS Code extension that shows a kanban board of tasks for `<Name>Add` companion folders — folders next to a
+project's source code that hold its documentation and task materials. Columns are stage folders
+`Tasks/<stage>/`, cards are task folders `Tasks/<stage>/<number>/`. Dragging a card moves the task folder,
+updates the status line in `task.md` and runs the configured actions: a file check and a commit of the task's files.
 
-## Встановлення
+Plain JavaScript, no dependencies and no build step — VS Code loads the folder as is.
 
-**Пакет `.vsix`** — для будь-якого комп'ютера; каталог з кодом після встановлення не потрібен:
+> The UI is in Ukrainian. Labels below are quoted as they appear, with a translation in parentheses.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\pack.ps1      # → dist\task-kanban-<версія>.vsix (Node не потрібен)
-code --install-extension dist\task-kanban-<версія>.vsix   # або Extensions → … → Install from VSIX
+## Task layout
+
+```
+<Name>Add/
+├── .vscode/settings.json   ← board settings (taskKanban.*)
+└── Tasks/
+    ├── _template/          ← new task template (`<номер>` in its files is replaced with the task number)
+    ├── 1_new/  2_queue/  3_work/  4_testing/  5_done/   ← stages
+    │   └── <number>/
+    │       ├── task.md     ← description; a "- **Статус:** …" line or a "## Статус" section (status)
+    │       ├── notes.md
+    │       └── …           ← artifacts: path.sql, task_<number>.v<N>.zip, delphi/ …
 ```
 
-Що не пакується — `.vscodeignore`. Перед новою збіркою підняти `version` у `package.json`, інакше VS Code
-вважатиме пакет уже встановленим.
+## Installation
 
-**Посилання на каталог** — для розробки: зміни в коді підхоплюються після `Developer: Reload Window`.
+**`.vsix` package** — for any machine; the source folder is not needed after installation:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1   # junction у ~/.vscode/extensions
+powershell -ExecutionPolicy Bypass -File .\pack.ps1      # → dist\task-kanban-<version>.vsix (no Node required)
+code --install-extension dist\task-kanban-<version>.vsix  # or Extensions → … → Install from VSIX
+```
+
+Files excluded from the package are listed in `.vscodeignore`. Bump `version` in `package.json` before each new
+build, otherwise VS Code treats the package as already installed.
+
+**Link to the source folder** — for development: code changes are picked up after `Developer: Reload Window`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1   # junction in ~/.vscode/extensions
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 ```
 
-Обидва способи разом не використовувати: перед `--install-extension` прибрати junction (`-Uninstall`),
-інакше VS Code писатиме пакет крізь посилання прямо в каталог з кодом.
+Do not combine the two: remove the junction (`-Uninstall`) before `--install-extension`, otherwise VS Code
+writes the package through the link straight into the source folder.
 
-## Перенесення на інший проект або комп'ютер
+## Moving to another project or machine
 
-- Розширення одне на VS Code; працює в будь-якій робочій області, де є `Tasks/_template`.
-- Новий проект: каталоги `Tasks/_template/` і етапів (`1_new` … `5_done`) + `.vscode/settings.json` з
-  `taskKanban.transitions` (приклад — нижче). Інші етапи — перевизначити `taskKanban.stages`.
-- `repo` у налаштуваннях писати **відносно кореня робочої області** (`"../ultra-delphi"`), а не абсолютно —
-  тоді налаштування працюють на будь-якому диску, поки `<Name>Add` і код лежать поруч.
-- Settings Sync не переносить розширення не з маркетплейсу — `.vsix` ставити на кожному комп'ютері.
-- Для комітів з дошки в git мають бути задані `user.name` і `user.email`.
+- The extension is installed once per VS Code and works in any workspace that contains `Tasks/_template`.
+- New project: create `Tasks/_template/` and the stage folders (`1_new` … `5_done`) plus `.vscode/settings.json`
+  with `taskKanban.transitions` (example below). Different stages — override `taskKanban.stages`.
+- Write `repo` paths **relative to the workspace root** (`"../ultra-delphi"`), not absolute — the settings then
+  work on any drive as long as `<Name>Add` and the code sit side by side.
+- Settings Sync does not carry extensions that are not from the Marketplace — install the `.vsix` on each machine.
+- Commits from the board need git `user.name` and `user.email` to be set.
 
-Налагодження: відкрити цей каталог у VS Code, `F5` (конфігурація «Run Extension»), у новому вікні відкрити
-`<Name>Add`.
+## Usage
 
-## Використання
+- Board: the **Задачі** (Tasks) button in the status bar, or the command `Task Kanban: Відкрити дошку` (Open board).
+- Drag a card to another column to move the task.
+- Click a card to open `task.md`; ✎ opens `notes.md`; 📁 reveals the folder in the Explorer.
+- Click a column header to collapse/expand it.
+- `+ Задача` (+ Task) / `Task Kanban: Нова задача` (New task) creates a folder from `Tasks/_template` in the first stage.
+- A yellow «статус: …» (status) badge means the status in `task.md` does not match the stage.
+- Task folders placed directly in `Tasks/` (outside any stage) appear in the «Без етапу» (No stage) column.
+- Action log: Output panel → «Task Kanban».
 
-- Дошка: кнопка **Задачі** в рядку стану або команда `Task Kanban: Відкрити дошку`.
-- Перетягнути картку в іншу колонку — перенести задачу.
-- Клік по картці — `task.md`; ✎ — `notes.md`; 📁 — показати в провіднику.
-- Клік по заголовку колонки — згорнути/розгорнути.
-- `+ Задача` / `Task Kanban: Нова задача` — каталог із `Tasks/_template` у першому етапі (`<номер>` у файлах
-  шаблону замінюється на номер).
-- Жовтий бейдж «статус: …» — статус у `task.md` не збігається з етапом.
-- Каталоги задач просто в `Tasks/` (поза етапами) показуються в колонці «Без етапу».
-- Журнал дій — панель Output → «Task Kanban».
+## Settings
 
-## Налаштування
+In `.vscode/settings.json` of the `<Name>Add` folder.
 
-У `.vscode/settings.json` каталогу `<Name>Add`.
-
-| Параметр | За замовчуванням | Що |
+| Setting | Default | Meaning |
 |---|---|---|
-| `taskKanban.tasksDir` | `Tasks` | каталог задач |
-| `taskKanban.templateDir` | `_template` | шаблон нової задачі всередині `tasksDir` |
-| `taskKanban.stages` | `1_new` … `5_done` | колонки: `dir`, `title`, `status` (значення для `task.md`), `collapsed` |
-| `taskKanban.commitMessage` | `{number}` | повідомлення коміту: `{number}`, `{stage}`, `{status}`, `{title}` |
-| `taskKanban.transitions` | `[]` | дії при перенесенні |
+| `taskKanban.tasksDir` | `Tasks` | tasks folder |
+| `taskKanban.templateDir` | `_template` | new task template inside `tasksDir` |
+| `taskKanban.stages` | `1_new` … `5_done` | columns: `dir`, `title`, `status` (value written to `task.md`), `collapsed` |
+| `taskKanban.commitMessage` | `{number}` | commit message: `{number}`, `{stage}`, `{status}`, `{title}` |
+| `taskKanban.transitions` | `[]` | actions on move |
 
-### Переходи
+### Transitions
 
 ```jsonc
 "taskKanban.transitions": [
   {
-    "from": "*",               // dir етапу або *
+    "from": "*",               // stage dir or *
     "to": "4_testing",
     "actions": [
-      // до перенесення: попередити, якщо в каталозі задачі немає файлів за масками
+      // before the move: warn if the task folder has no files matching the masks
       { "type": "check", "files": ["task_*.zip"] },
-      // після перенесення: закомітити змінені файли задачі в репозиторій супровідного каталогу
+      // after the move: commit the task's changed files in the companion folder's repository
       { "type": "commit", "name": "UltraAdd",
         "paths": ["Tasks/*/{number}/**", "Obsidian/Tasks/{number}.md"] },
-      // і код: файли з Tasks/<етап>/<номер>/delphi/ шукаються в репозиторії за іменем
+      // and the code: files from Tasks/<stage>/<number>/delphi/ are looked up in the repository by name
       { "type": "commit", "name": "ultra-delphi", "repo": "../ultra-delphi", "sourceDir": "delphi" }
     ]
   }
 ]
 ```
 
-- `repo` — шлях до репозиторію (відносний — від кореня робочої області; за замовчуванням сама робоча область).
-- `paths` — git-маски (glob) відносно кореня репозиторію; `{number}` — номер задачі.
-- `sourceDir` — підкаталог задачі; кожен файл звідти шукається в репозиторії за іменем файла (без урахування
-  регістру), комітяться лише змінені.
-- Перед комітом показується список файлів з галочками; Esc — не комітити (перенесення лишається).
-- Комітяться **лише** вибрані файли (`git commit --only`): чужі зміни, навіть проіндексовані, у коміт не потрапляють.
-- Репозиторій без git — попередження і пропуск. `push` не робиться.
+- `repo` — repository path (relative paths resolve from the workspace root; defaults to the workspace itself).
+- `paths` — git glob pathspecs relative to the repository root; `{number}` is the task number.
+- `sourceDir` — a task subfolder; each file in it is looked up in the repository by file name
+  (case-insensitive), and only changed files are committed.
+- Before committing, a checklist of files is shown; Esc skips the commit (the move stays).
+- **Only** the selected files are committed (`git commit --only`): other changes, even staged ones, stay out.
+- A folder that is not a git repository is skipped with a warning. Nothing is pushed.
 
-## Розробка
+## Development
 
 ```
-extension.js     — активація, панель, команди, перенесення і коміти (vscode API)
-src/core.js      — логіка без vscode: сканування, статус у task.md, перенесення, git
-media/board.*    — дошка у webview
-test/            — тести src/core.js (node:test)
+extension.js     — activation, panel, commands, moves and commits (vscode API)
+src/core.js      — logic without vscode: scanning, status in task.md, moving, git
+media/board.*    — the board webview
+test/            — tests for src/core.js (node:test)
 ```
 
-Тести (Node окремо не потрібен — використовується вбудований у VS Code):
+Debugging: open this folder in VS Code and press `F5` («Run Extension») — a new window opens with
+`../UltraAdd`; to use another folder, change `args` in `.vscode/launch.json`.
+
+Tests (no separate Node install needed — the one bundled with VS Code is used):
 
 ```bash
-ELECTRON_RUN_AS_NODE=1 "<каталог VS Code>/Code.exe" test/core.test.js
+ELECTRON_RUN_AS_NODE=1 "<VS Code folder>/Code.exe" test/core.test.js
 ```

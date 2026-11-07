@@ -1,7 +1,7 @@
 {
   "name": "task-kanban",
   "displayName": "Task Kanban",
-  "description": "Канбан-дошка задач для супровідних каталогів <Name>Add: колонки = каталоги Tasks/<етап>/, перетягування переносить задачу і комітить її файли.",
+  "description": "Kanban board for <Name>Add task folders: columns are Tasks/<stage>/ folders; dragging a card moves the task and commits its files.",
   "version": "0.1.0",
   "publisher": "local",
   "license": "UNLICENSED",
