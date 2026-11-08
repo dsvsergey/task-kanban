@@ -25,19 +25,56 @@ Plain JavaScript, no dependencies and no build step — VS Code loads the folder
     │       └── …           ← artifacts: path.sql, task_<number>.v<N>.zip, delphi/ …
 ```
 
-## Installation
+## Installing on another computer
 
-**`.vsix` package** — for any machine; the source folder is not needed after installation:
+The extension is not on the Marketplace; it is installed from a `.vsix` file. Node.js is **not** required.
+
+**Requirements:** Windows, VS Code 1.85+, Git (for commits from the board), PowerShell 5.1+ (built into Windows).
+
+### 1. Get the `.vsix`
+
+- **From a release** (if one is published): open
+  [Releases](https://github.com/dsvsergey/task-kanban/releases), download `task-kanban-<version>.vsix`
+  and go to step 2.
+- **Build it from source:**
+
+  ```powershell
+  git clone https://github.com/dsvsergey/task-kanban.git
+  cd task-kanban
+  powershell -ExecutionPolicy Bypass -File .\pack.ps1   # → dist\task-kanban-<version>.vsix
+  ```
+
+  Without Git: on GitHub click **Code → Download ZIP**, extract it, and run `pack.ps1` in the extracted folder.
+
+### 2. Install it
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\pack.ps1      # → dist\task-kanban-<version>.vsix (no Node required)
-code --install-extension dist\task-kanban-<version>.vsix  # or Extensions → … → Install from VSIX
+code --install-extension dist\task-kanban-<version>.vsix
 ```
 
-Files excluded from the package are listed in `.vscodeignore`. Bump `version` in `package.json` before each new
-build, otherwise VS Code treats the package as already installed.
+Or in VS Code: **Extensions** view → `…` menu → **Install from VSIX…** → pick the file.
+Then run `Developer: Reload Window`.
 
-**Link to the source folder** — for development: code changes are picked up after `Developer: Reload Window`.
+### 3. Set up the project
+
+1. Open the `<Name>Add` folder in VS Code (it must contain `Tasks/_template/`).
+2. Create the stage folders `Tasks/1_new` … `Tasks/5_done` (or define your own in `taskKanban.stages`).
+3. Add `.vscode/settings.json` with `taskKanban.transitions` — see [Transitions](#transitions); keep `repo`
+   paths relative (`"../my-code"`).
+4. Make sure Git knows who you are: `git config --global user.name "…"` and `git config --global user.email "…"`.
+5. Click **Задачі** (Tasks) in the status bar.
+
+### Update and removal
+
+- **Update:** `git pull` (or download a new release), bump `version` in `package.json` if you changed the code
+  yourself, rebuild with `pack.ps1` and install the new `.vsix` — VS Code replaces the old version.
+- **Remove:** `code --uninstall-extension local.task-kanban` or **Uninstall** in the Extensions view.
+
+Files excluded from the package are listed in `.vscodeignore`.
+
+## Development install
+
+**Link to the source folder** — code changes are picked up after `Developer: Reload Window`.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1   # junction in ~/.vscode/extensions

@@ -23,19 +23,56 @@
     │       └── …           ← артефакти: path.sql, task_<номер>.v<N>.zip, delphi/ …
 ```
 
-## Встановлення
+## Встановлення на іншому комп'ютері
 
-**Пакет `.vsix`** — для будь-якого комп'ютера; каталог з кодом після встановлення не потрібен:
+Розширення немає в маркетплейсі — його ставлять з файла `.vsix`. Node.js **не** потрібен.
+
+**Потрібно:** Windows, VS Code 1.85+, Git (для комітів з дошки), PowerShell 5.1+ (є у Windows).
+
+### 1. Отримати `.vsix`
+
+- **З релізу** (якщо опубліковано): відкрити
+  [Releases](https://github.com/dsvsergey/task-kanban/releases), завантажити `task-kanban-<версія>.vsix`
+  і перейти до кроку 2.
+- **Зібрати з коду:**
+
+  ```powershell
+  git clone https://github.com/dsvsergey/task-kanban.git
+  cd task-kanban
+  powershell -ExecutionPolicy Bypass -File .\pack.ps1   # → dist\task-kanban-<версія>.vsix
+  ```
+
+  Без Git: на GitHub **Code → Download ZIP**, розпакувати і запустити `pack.ps1` у розпакованому каталозі.
+
+### 2. Встановити
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\pack.ps1      # → dist\task-kanban-<версія>.vsix (Node не потрібен)
-code --install-extension dist\task-kanban-<версія>.vsix   # або Extensions → … → Install from VSIX
+code --install-extension dist\task-kanban-<версія>.vsix
 ```
 
-Що не пакується — `.vscodeignore`. Перед новою збіркою підняти `version` у `package.json`, інакше VS Code
-вважатиме пакет уже встановленим.
+Або у VS Code: панель **Extensions** → меню `…` → **Install from VSIX…** → вибрати файл.
+Потім `Developer: Reload Window`.
 
-**Посилання на каталог** — для розробки: зміни в коді підхоплюються після `Developer: Reload Window`.
+### 3. Налаштувати проект
+
+1. Відкрити у VS Code каталог `<Name>Add` (у ньому має бути `Tasks/_template/`).
+2. Створити каталоги етапів `Tasks/1_new` … `Tasks/5_done` (або задати свої в `taskKanban.stages`).
+3. Додати `.vscode/settings.json` з `taskKanban.transitions` — див. [Переходи](#переходи); шляхи `repo`
+   писати відносні (`"../my-code"`).
+4. Перевірити, що git знає автора: `git config --global user.name "…"` і `git config --global user.email "…"`.
+5. Натиснути **Задачі** в рядку стану.
+
+### Оновлення і видалення
+
+- **Оновити:** `git pull` (або завантажити новий реліз), якщо код змінювали самі — підняти `version`
+  у `package.json`, перезібрати `pack.ps1` і встановити новий `.vsix` — VS Code замінить стару версію.
+- **Видалити:** `code --uninstall-extension local.task-kanban` або **Uninstall** на панелі Extensions.
+
+Що не пакується — `.vscodeignore`.
+
+## Встановлення для розробки
+
+**Посилання на каталог** — зміни в коді підхоплюються після `Developer: Reload Window`.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1   # junction у ~/.vscode/extensions
