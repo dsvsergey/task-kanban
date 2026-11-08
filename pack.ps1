@@ -38,6 +38,7 @@ $manifest = @"
     <Tags></Tags>
     <Categories>$(& $esc ($pkg.categories -join ','))</Categories>
     <GalleryFlags>Public</GalleryFlags>
+    <License>extension/LICENSE</License>
     <Properties>
       <Property Id="Microsoft.VisualStudio.Code.Engine" Value="$(& $esc $pkg.engines.vscode)" />
       <Property Id="Microsoft.VisualStudio.Code.ExtensionDependencies" Value="" />
@@ -53,6 +54,7 @@ $manifest = @"
   <Assets>
     <Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true" />
     <Asset Type="Microsoft.VisualStudio.Services.Content.Details" Path="extension/README.md" Addressable="true" />
+    <Asset Type="Microsoft.VisualStudio.Services.Content.License" Path="extension/LICENSE" Addressable="true" />
   </Assets>
 </PackageManifest>
 "@

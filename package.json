@@ -4,7 +4,7 @@
   "description": "Kanban board for <Name>Add task folders: columns are Tasks/<stage>/ folders; dragging a card moves the task and commits its files.",
   "version": "0.1.1",
   "publisher": "local",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "engines": {
     "vscode": "^1.85.0"

@@ -160,3 +160,7 @@ test/            — тести src/core.js (node:test)
 ```bash
 ELECTRON_RUN_AS_NODE=1 "<каталог VS Code>/Code.exe" test/core.test.js
 ```
+
+## Ліцензія
+
+[MIT](LICENSE) © 2026 Sergey Dobrovolskj

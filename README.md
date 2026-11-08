@@ -162,3 +162,7 @@ Tests (no separate Node install needed — the one bundled with VS Code is used)
 ```bash
 ELECTRON_RUN_AS_NODE=1 "<VS Code folder>/Code.exe" test/core.test.js
 ```
+
+## License
+
+[MIT](LICENSE) © 2026 Sergey Dobrovolskj
