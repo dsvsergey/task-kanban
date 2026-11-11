@@ -2,7 +2,7 @@
   "name": "task-kanban",
   "displayName": "Task Kanban",
   "description": "Kanban board for <Name>Add task folders: columns are Tasks/<stage>/ folders; dragging a card moves the task and commits its files.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "local",
   "license": "MIT",
   "private": true,
@@ -33,6 +33,16 @@
         "command": "taskKanban.refresh",
         "title": "Оновити дошку",
         "category": "Task Kanban"
+      },
+      {
+        "command": "taskKanban.addColumn",
+        "title": "Додати колонку",
+        "category": "Task Kanban"
+      },
+      {
+        "command": "taskKanban.resetColumns",
+        "title": "Повернути стандартні колонки",
+        "category": "Task Kanban"
       }
     ],
     "configuration": {
@@ -50,7 +60,7 @@
         },
         "taskKanban.stages": {
           "type": "array",
-          "description": "Етапи (колонки) у порядку відображення. dir — підкаталог tasksDir, status — значення рядка «Статус» у task.md.",
+          "description": "Етапи (колонки) у порядку відображення. dir — підкаталог tasksDir, status — значення рядка «Статус» у task.md. Керується з дошки (+ Колонка, ◀ ▶ ✎ ✕); команда «Повернути стандартні колонки» прибирає перевизначення.",
           "items": {
             "type": "object",
             "required": [

@@ -89,6 +89,32 @@
     return c;
   }
 
+  function columnTools(col, total) {
+    const tools = el('span', 'column-tools');
+    const idx = state.stages.findIndex((s) => s.dir === col.dir);
+    const btn = (text, title, msg, disabled) => {
+      const b = el('button', 'icon', text);
+      b.title = title;
+      b.disabled = !!disabled || state.busy;
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage(msg);
+      });
+      tools.appendChild(b);
+    };
+    btn('◀', 'Перемістити ліворуч', { type: 'moveColumn', dir: col.dir, delta: -1 }, idx <= 0);
+    btn('▶', 'Перемістити праворуч', { type: 'moveColumn', dir: col.dir, delta: 1 }, idx >= state.stages.length - 1);
+    btn('✎', 'Змінити назву і статус', { type: 'editColumn', dir: col.dir });
+    btn('＋', 'Додати колонку праворуч', { type: 'addColumn', after: idx });
+    btn(
+      '✕',
+      total ? 'Видалити можна лише порожню колонку' : 'Видалити колонку',
+      { type: 'deleteColumn', dir: col.dir },
+      total > 0 || state.stages.length <= 1,
+    );
+    return tools;
+  }
+
   function render() {
     busyEl.hidden = !state.busy;
     board.textContent = '';
@@ -101,7 +127,10 @@
       section.dataset.dir = col.dir;
       const header = el('header', 'column-head');
       header.appendChild(el('span', 'column-title', col.title));
-      header.appendChild(el('span', 'count', filter ? `${tasks.length}/${total}` : String(total)));
+      const right = el('span', 'column-right');
+      if (!col.noDrop && !isC) right.appendChild(columnTools(col, total));
+      right.appendChild(el('span', 'count', filter ? `${tasks.length}/${total}` : String(total)));
+      header.appendChild(right);
       header.title = isC ? 'Розгорнути' : 'Згорнути';
       header.addEventListener('click', () => {
         collapsed = Object.assign({}, collapsed, { [col.dir]: !isC });
@@ -143,6 +172,7 @@
   });
   document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
   document.getElementById('new').addEventListener('click', () => vscode.postMessage({ type: 'newTask' }));
+  document.getElementById('addColumn').addEventListener('click', () => vscode.postMessage({ type: 'addColumn' }));
 
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'state') {

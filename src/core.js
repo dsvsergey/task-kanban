@@ -138,7 +138,14 @@ function scanTasks(tasksRoot, stages) {
     }
   }
   for (const id of listDirs(tasksRoot)) {
-    if (!stageDirs.has(id)) tasks.push(readTask(path.join(tasksRoot, id), id, ''));
+    if (stageDirs.has(id)) continue;
+    const dir = path.join(tasksRoot, id);
+    if (findTaskFile(dir)) {
+      tasks.push(readTask(dir, id, ''));
+      continue;
+    }
+    // каталог етапу, якого немає в списку колонок: його задачі — «без етапу»
+    for (const sub of listDirs(dir)) tasks.push(readTask(path.join(dir, sub), sub, ''));
   }
   tasks.sort((a, b) => compareIds(a.id, b.id));
   return tasks;
@@ -237,6 +244,109 @@ function walk(dir) {
     else out.push(p);
   }
   return out;
+}
+
+// ---------- колонки (етапи) ----------
+// Список етапів незмінний: кожна функція повертає новий масив для запису в налаштування.
+
+function validateStageDir(tasksRoot, stages, dir) {
+  const d = String(dir || '').trim();
+  if (!d) return 'Вкажіть назву каталогу';
+  if (!/^[\w.-]+$/.test(d)) return 'Лише латиниця, цифри, _ . -';
+  if (d.startsWith('_') || d.startsWith('.')) return 'Каталог не може починатися з _ або .';
+  if (stages.some((s) => s.dir.toLowerCase() === d.toLowerCase())) return `Колонка ${d} уже є`;
+  const full = path.join(tasksRoot, d);
+  if (fs.existsSync(full) && findTaskFile(full)) return `${d} — це каталог задачі, а не етапу`;
+  return null;
+}
+
+/** Додає колонку після індексу after (-1 — на початок; за замовчуванням — у кінець) і створює каталог. */
+function addStage(tasksRoot, stages, stage, after = stages.length - 1) {
+  const err = validateStageDir(tasksRoot, stages, stage.dir);
+  if (err) throw new Error(err);
+  const s = { dir: stage.dir.trim(), title: (stage.title || stage.dir).trim() };
+  if (stage.status && stage.status.trim()) s.status = stage.status.trim();
+  fs.mkdirSync(path.join(tasksRoot, s.dir), { recursive: true });
+  const at = Math.max(0, Math.min(stages.length, after + 1));
+  return [...stages.slice(0, at), s, ...stages.slice(at)];
+}
+
+function updateStage(stages, dir, patch) {
+  return stages.map((s) => {
+    if (s.dir !== dir) return s;
+    const n = { ...s };
+    for (const k of ['title', 'status']) {
+      if (!(k in patch)) continue;
+      const v = String(patch[k] || '').trim();
+      if (v) n[k] = v;
+      else delete n[k];
+    }
+    if ('collapsed' in patch) {
+      if (patch.collapsed) n.collapsed = true;
+      else delete n.collapsed;
+    }
+    return n;
+  });
+}
+
+function moveStage(stages, dir, delta) {
+  const i = stages.findIndex((s) => s.dir === dir);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= stages.length) return stages;
+  const out = [...stages];
+  [out[i], out[j]] = [out[j], out[i]];
+  return out;
+}
+
+/**
+ * Прибирає колонку. Лише порожню: задачі спершу перенести в інші колонки.
+ * Каталог видаляється, якщо в ньому лишилися тільки службові файли (.gitkeep тощо).
+ */
+function removeStage(tasksRoot, stages, dir) {
+  if (!stages.some((s) => s.dir === dir)) throw new Error(`Колонки ${dir} немає`);
+  if (stages.length <= 1) throw new Error('Остання колонка — видаляти нема куди переносити задачі');
+  const count = scanTasks(tasksRoot, stages).filter((t) => t.stage === dir).length;
+  if (count) throw new Error(`У колонці ${dir} задач: ${count} — спершу перенесіть їх в інші колонки`);
+  const full = path.join(tasksRoot, dir);
+  let folderRemoved = false;
+  if (fs.existsSync(full)) {
+    const rest = fs.readdirSync(full).filter((n) => !/^\.(gitkeep|keep|DS_Store)$/i.test(n) && n !== 'desktop.ini');
+    if (!rest.length) {
+      fs.rmSync(full, { recursive: true, force: true });
+      folderRemoved = true;
+    }
+  }
+  return { stages: stages.filter((s) => s.dir !== dir), folderRemoved };
+}
+
+const TRANSLIT = {
+  а: 'a', б: 'b', в: 'v', г: 'h', ґ: 'g', д: 'd', е: 'e', є: 'ie', ж: 'zh', з: 'z', и: 'y', і: 'i', ї: 'i', й: 'i',
+  к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts',
+  ч: 'ch', ш: 'sh', щ: 'shch', ь: '', ю: 'iu', я: 'ia', ы: 'y', э: 'e', ё: 'io', ъ: '', "'": '', 'ʼ': '', '’': '',
+};
+
+/** Пропонує каталог для нової колонки: <наступний номер>_<транслітерація назви>, без збігів з наявними. */
+function suggestStageDir(stages, title) {
+  const slug =
+    String(title || '')
+      .toLowerCase()
+      .split('')
+      .map((ch) => (ch in TRANSLIT ? TRANSLIT[ch] : ch))
+      .join('')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 24) || 'stage';
+  const nums = stages.map((s) => parseInt(s.dir, 10)).filter((n) => !isNaN(n));
+  let n = nums.length ? Math.max(...nums) + 1 : stages.length + 1;
+  const taken = new Set(stages.map((s) => s.dir.toLowerCase()));
+  let dir = `${n}_${slug}`;
+  while (taken.has(dir.toLowerCase())) dir = `${++n}_${slug}`;
+  return dir;
+}
+
+/** Переходи, що згадують етап (from/to) — щоб попередити перед видаленням. */
+function transitionsUsing(transitions, dir) {
+  return (transitions || []).filter((t) => t.from === dir || t.to === dir);
 }
 
 // ---------- переходи ----------
@@ -389,6 +499,13 @@ module.exports = {
   moveTask,
   renameWithRetry,
   createTask,
+  validateStageDir,
+  suggestStageDir,
+  addStage,
+  updateStage,
+  moveStage,
+  removeStage,
+  transitionsUsing,
   matchTransitions,
   fill,
   missingFiles,

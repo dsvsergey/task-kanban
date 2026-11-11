@@ -90,6 +90,38 @@ button:hover {
   user-select: none;
   border-bottom: 1px solid var(--vscode-panel-border);
 }
+button.secondary {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+button.secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.column-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.column.collapsed .column-title {
+  overflow: visible;
+}
+
+.column-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.column-tools {
+  display: flex;
+  visibility: hidden;
+}
+.column-head:hover .column-tools,
+.column-head:focus-within .column-tools {
+  visibility: visible;
+}
+
 .count {
   color: var(--vscode-descriptionForeground);
   font-weight: normal;

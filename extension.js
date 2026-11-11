@@ -79,6 +79,7 @@ function html(webview, extUri) {
 <header class="toolbar">
   <input id="filter" type="search" placeholder="Фільтр: номер або текст" aria-label="Фільтр">
   <button id="new" title="Нова задача">+ Задача</button>
+  <button id="addColumn" class="secondary" title="Додати колонку">+ Колонка</button>
   <button id="refresh" title="Оновити">⟳</button>
   <span id="busy" class="busy" hidden>виконується…</span>
 </header>
@@ -135,6 +136,18 @@ async function onMessage(m, context) {
         break;
       case 'newTask':
         await newTask(context);
+        break;
+      case 'addColumn':
+        await addColumn(m.after);
+        break;
+      case 'editColumn':
+        await editColumn(m.dir);
+        break;
+      case 'moveColumn':
+        await saveStages(core.moveStage(ws.stages, m.dir, m.delta));
+        break;
+      case 'deleteColumn':
+        await deleteColumn(m.dir);
         break;
     }
   } catch (e) {
@@ -261,6 +274,115 @@ async function runCommits(ws, task, stage, commitActions) {
   if (done.length) vscode.window.showInformationMessage(`${task.id}: закомічено — ${done.join(', ')}`);
 }
 
+// ---------- колонки ----------
+
+function workspaceFolderUri(ws) {
+  const f = (vscode.workspace.workspaceFolders || []).find((x) => x.uri.fsPath === ws.folder);
+  return f ? f.uri : undefined;
+}
+
+/** Записує список колонок у налаштування проекту (.vscode/settings.json). undefined — повернути стандартний. */
+async function saveStages(stages) {
+  const ws = workspace();
+  if (!ws) return;
+  const cfg = vscode.workspace.getConfiguration('taskKanban', workspaceFolderUri(ws));
+  await cfg.update('stages', stages, vscode.ConfigurationTarget.WorkspaceFolder);
+  log(stages ? `Колонки: ${stages.map((s) => s.dir).join(', ')}` : 'Колонки: стандартний список');
+  postState();
+}
+
+async function addColumn(after) {
+  const ws = requireWorkspace();
+  if (!ws) return;
+  const title = await vscode.window.showInputBox({
+    title: 'Нова колонка (1/3)',
+    prompt: 'Назва колонки на дошці',
+    placeHolder: 'напр. Архів',
+    validateInput: (v) => (v.trim() ? null : 'Вкажіть назву'),
+  });
+  if (!title) return;
+  const suggested = core.suggestStageDir(ws.stages, title);
+  const dir = await vscode.window.showInputBox({
+    title: 'Нова колонка (2/3)',
+    prompt: `Каталог етапу в ${path.basename(ws.tasksRoot)}/ (латиницею; порядок колонок задається на дошці, не іменем)`,
+    value: suggested,
+    validateInput: (v) => core.validateStageDir(ws.tasksRoot, ws.stages, v),
+  });
+  if (!dir) return;
+  const status = await vscode.window.showInputBox({
+    title: 'Нова колонка (3/3)',
+    prompt: 'Статус, що пишеться в task.md при перенесенні сюди (порожньо — не змінювати)',
+    value: title.trim().toLowerCase(),
+  });
+  if (status === undefined) return;
+  let pos = typeof after === 'number' ? after : ws.stages.length - 1;
+  if (typeof after !== 'number' && ws.stages.length) {
+    const pick = await vscode.window.showQuickPick(
+      [
+        { label: 'На початок', index: -1 },
+        ...ws.stages.map((s, i) => ({ label: `Після «${s.title || s.dir}»`, description: s.dir, index: i })),
+      ],
+      { title: 'Де розмістити колонку', placeHolder: 'За замовчуванням — у кінці' },
+    );
+    if (!pick) return;
+    pos = pick.index;
+  }
+  await saveStages(core.addStage(ws.tasksRoot, ws.stages, { dir, title, status }, pos));
+}
+
+async function editColumn(dir) {
+  const ws = requireWorkspace();
+  const st = ws && ws.stages.find((s) => s.dir === dir);
+  if (!st) return;
+  const title = await vscode.window.showInputBox({
+    title: `Колонка ${dir}`,
+    prompt: 'Назва колонки на дошці',
+    value: st.title || st.dir,
+    validateInput: (v) => (v.trim() ? null : 'Вкажіть назву'),
+  });
+  if (!title) return;
+  const status = await vscode.window.showInputBox({
+    title: `Колонка ${dir}`,
+    prompt: 'Статус для task.md (порожньо — не змінювати статус при перенесенні)',
+    value: st.status || '',
+  });
+  if (status === undefined) return;
+  await saveStages(core.updateStage(ws.stages, dir, { title, status }));
+}
+
+async function deleteColumn(dir) {
+  const ws = requireWorkspace();
+  const st = ws && ws.stages.find((s) => s.dir === dir);
+  if (!st) return;
+  const count = core.scanTasks(ws.tasksRoot, ws.stages).filter((t) => t.stage === dir).length;
+  if (count) {
+    vscode.window.showWarningMessage(`У колонці «${st.title || dir}» задач: ${count}. Спершу перенесіть їх в інші колонки.`);
+    return;
+  }
+  const used = core.transitionsUsing(ws.transitions, dir);
+  const note = used.length ? ` Її згадують переходи (${used.length}) у taskKanban.transitions — вони перестануть спрацьовувати.` : '';
+  const ok = await vscode.window.showWarningMessage(
+    `Видалити колонку «${st.title || dir}»? Порожній каталог ${dir} буде видалено.${note}`,
+    { modal: true },
+    'Видалити',
+  );
+  if (ok !== 'Видалити') return;
+  const res = core.removeStage(ws.tasksRoot, ws.stages, dir);
+  if (!res.folderRemoved) log(`${dir}: каталог не порожній (службові файли) — залишено`);
+  await saveStages(res.stages);
+}
+
+async function resetColumns() {
+  const ws = requireWorkspace();
+  if (!ws) return;
+  const ok = await vscode.window.showWarningMessage(
+    'Повернути стандартний список колонок? Каталоги не змінюються; задачі з етапів, яких не буде в списку, з’являться в колонці «Без етапу».',
+    { modal: true },
+    'Повернути',
+  );
+  if (ok === 'Повернути') await saveStages(undefined);
+}
+
 // ---------- нова задача ----------
 
 async function newTask() {
@@ -290,6 +412,8 @@ function activate(context) {
     vscode.commands.registerCommand('taskKanban.open', () => openBoard(context)),
     vscode.commands.registerCommand('taskKanban.newTask', () => newTask()),
     vscode.commands.registerCommand('taskKanban.refresh', () => postState()),
+    vscode.commands.registerCommand('taskKanban.addColumn', () => addColumn()),
+    vscode.commands.registerCommand('taskKanban.resetColumns', () => resetColumns()),
   );
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);

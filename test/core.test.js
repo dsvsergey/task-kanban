@@ -192,3 +192,66 @@ test('зайнятий каталог: повтори, потім зрозумі
     process.chdir(prev);
   }
 });
+
+test('колонки: додати, змінити, переставити, видалити', async () => {
+  const root = tmp();
+  const tasks = path.join(root, 'Tasks');
+  write(path.join(tasks, '1_new', '.gitkeep'), '');
+  write(path.join(tasks, '3_work', '10', 'task.md'), '# Task 10\n\n- **Статус:** в роботі\n');
+  write(path.join(tasks, '4_testing', '.gitkeep'), '');
+  let stages = STAGES.map((s) => ({ ...s }));
+
+  // підказка каталогу і перевірки
+  assert.equal(core.suggestStageDir(stages, 'Архів'), '5_arkhiv');
+  assert.equal(core.suggestStageDir(stages, '!!!'), '5_stage');
+  assert.match(core.validateStageDir(tasks, stages, '3_WORK'), /уже є/);
+  assert.match(core.validateStageDir(tasks, stages, '_x'), /не може починатися/);
+  assert.match(core.validateStageDir(tasks, stages, 'Архів'), /латиниця/);
+  write(path.join(tasks, '777', 'task.md'), '# Task 777\n');
+  assert.match(core.validateStageDir(tasks, stages, '777'), /каталог задачі/);
+  assert.equal(core.validateStageDir(tasks, stages, '5_arkhiv'), null);
+
+  // додати після 3_work (індекс 1) — створюється каталог
+  stages = core.addStage(tasks, stages, { dir: '5_arkhiv', title: ' Архів ', status: 'архів' }, 1);
+  assert.deepEqual(stages.map((s) => s.dir), ['1_new', '3_work', '5_arkhiv', '4_testing']);
+  assert.deepEqual(stages[2], { dir: '5_arkhiv', title: 'Архів', status: 'архів' });
+  assert.ok(fs.existsSync(path.join(tasks, '5_arkhiv')));
+  // без статусу; на початок
+  stages = core.addStage(tasks, stages, { dir: '0_ideas', title: 'Ідеї', status: '  ' }, -1);
+  assert.deepEqual(stages[0], { dir: '0_ideas', title: 'Ідеї' });
+  assert.throws(() => core.addStage(tasks, stages, { dir: '0_ideas', title: 'x' }), /уже є/);
+
+  // змінити назву, прибрати статус
+  stages = core.updateStage(stages, '5_arkhiv', { title: 'Архів задач', status: '' });
+  assert.deepEqual(stages.find((s) => s.dir === '5_arkhiv'), { dir: '5_arkhiv', title: 'Архів задач' });
+
+  // переставити; на краях — без змін
+  stages = core.moveStage(stages, '5_arkhiv', 1);
+  assert.deepEqual(stages.map((s) => s.dir), ['0_ideas', '1_new', '3_work', '4_testing', '5_arkhiv']);
+  assert.equal(core.moveStage(stages, '5_arkhiv', 1), stages);
+  assert.equal(core.moveStage(stages, '0_ideas', -1), stages);
+
+  // видалити: непорожню — ні; порожню з .gitkeep — так, разом з каталогом
+  assert.throws(() => core.removeStage(tasks, stages, '3_work'), /задач: 1/);
+  let r = core.removeStage(tasks, stages, '4_testing');
+  assert.equal(r.folderRemoved, true);
+  assert.ok(!fs.existsSync(path.join(tasks, '4_testing')));
+  stages = r.stages;
+  // каталог зі сторонніми файлами лишається, колонка прибирається
+  write(path.join(tasks, '0_ideas', 'readme.txt'), 'x');
+  r = core.removeStage(tasks, stages, '0_ideas');
+  assert.equal(r.folderRemoved, false);
+  assert.ok(fs.existsSync(path.join(tasks, '0_ideas', 'readme.txt')));
+  stages = r.stages;
+  assert.deepEqual(stages.map((s) => s.dir), ['1_new', '3_work', '5_arkhiv']);
+
+  // етап прибрано зі списку, а задачі в ньому є — вони «без етапу», а не сам каталог як задача
+  const shown = core.scanTasks(tasks, stages.filter((s) => s.dir !== '3_work'));
+  assert.ok(shown.some((t) => t.id === '10' && t.stage === ''));
+  assert.ok(!shown.some((t) => t.id === '3_work'));
+  // і з «без етапу» задачу можна перенести назад у колонку
+  const back = await core.moveTask(tasks, stages, '10', '5_arkhiv');
+  assert.equal(back.moved, true);
+
+  assert.equal(core.transitionsUsing([{ from: '*', to: '5_arkhiv' }, { to: '1_new' }], '5_arkhiv').length, 1);
+});

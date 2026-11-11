@@ -100,9 +100,16 @@ writes the package through the link straight into the source folder.
 - Drag a card to another column to move the task.
 - Click a card to open `task.md`; ✎ opens `notes.md`; 📁 reveals the folder in the Explorer.
 - Click a column header to collapse/expand it.
+- **Columns** (hover a column header): ◀ ▶ move it, ✎ rename it and change its `task.md` status, ＋ add a
+  column to the right, ✕ delete it (only an empty one; its folder is removed if nothing but `.gitkeep` is left).
+  `+ Колонка` (+ Column) in the toolbar adds a column at a chosen position: title → folder (suggested from the
+  title, e.g. «Архів» → `6_arkhiv`) → status. Changes are saved to `taskKanban.stages` in the project's
+  `.vscode/settings.json`; until then the default five columns are used. `Task Kanban: Повернути стандартні
+  колонки` (Reset columns) removes the override.
 - `+ Задача` (+ Task) / `Task Kanban: Нова задача` (New task) creates a folder from `Tasks/_template` in the first stage.
 - A yellow «статус: …» (status) badge means the status in `task.md` does not match the stage.
-- Task folders placed directly in `Tasks/` (outside any stage) appear in the «Без етапу» (No stage) column.
+- Task folders placed directly in `Tasks/` (outside any stage), or in a stage folder that is no longer in the
+  column list, appear in the «Без етапу» (No stage) column; drag them to a column to file them.
 - Action log: Output panel → «Task Kanban».
 
 ## Settings
