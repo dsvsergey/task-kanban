@@ -2,7 +2,7 @@
   "name": "task-kanban",
   "displayName": "Task Kanban",
   "description": "Kanban board for <Name>Add task folders: columns are Tasks/<stage>/ folders; dragging a card moves the task and commits its files.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "local",
   "license": "MIT",
   "private": true,
@@ -49,16 +49,19 @@
       "title": "Task Kanban",
       "properties": {
         "taskKanban.tasksDir": {
+          "scope": "resource",
           "type": "string",
           "default": "Tasks",
           "description": "Каталог задач відносно кореня робочої області."
         },
         "taskKanban.templateDir": {
+          "scope": "resource",
           "type": "string",
           "default": "_template",
           "description": "Шаблон каталогу нової задачі (усередині tasksDir)."
         },
         "taskKanban.stages": {
+          "scope": "resource",
           "type": "array",
           "description": "Етапи (колонки) у порядку відображення. dir — підкаталог tasksDir, status — значення рядка «Статус» у task.md. Керується з дошки (+ Колонка, ◀ ▶ ✎ ✕); команда «Повернути стандартні колонки» прибирає перевизначення.",
           "items": {
@@ -91,11 +94,13 @@
           ]
         },
         "taskKanban.commitMessage": {
+          "scope": "resource",
           "type": "string",
           "default": "{number}",
           "description": "Повідомлення коміту. Підстановки: {number}, {stage}, {status}, {title}."
         },
         "taskKanban.transitions": {
+          "scope": "resource",
           "type": "array",
           "default": [],
           "markdownDescription": "Дії при перенесенні задачі. `from`/`to` — `dir` етапу або `*`. Дії: `check` (перед перенесенням: попередити, якщо в каталозі задачі немає файлів за масками `files`), `commit` (після перенесення: закомітити файли задачі в репозиторій `repo`; `paths` — git-маски відносно репозиторію, `sourceDir` — підкаталог задачі, файли з якого шукаються в репозиторії за іменем). Підстановки: `{number}`, `{stage}`, `${workspaceFolder}`.",

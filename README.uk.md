@@ -168,6 +168,13 @@ test/            — тести src/core.js (node:test)
 ELECTRON_RUN_AS_NODE=1 "<каталог VS Code>/Code.exe" test/core.test.js
 ```
 
+Інтеграційний тест у справжньому VS Code (окремий профіль і тимчасова робоча папка; вікно відкривається на
+кілька секунд): активація, оголошення налаштувань, запис `taskKanban.stages` у `settings.json`, команди.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test\integration\run.ps1
+```
+
 ## Ліцензія
 
 [MIT](LICENSE) © 2026 Sergey Dobrovolskj

@@ -170,6 +170,13 @@ Tests (no separate Node install needed — the one bundled with VS Code is used)
 ELECTRON_RUN_AS_NODE=1 "<VS Code folder>/Code.exe" test/core.test.js
 ```
 
+Integration test in a real VS Code (separate profile and a temporary workspace; a window opens for a few
+seconds): checks activation, setting declarations, writing `taskKanban.stages` to `settings.json` and commands.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test\integration\run.ps1
+```
+
 ## License
 
 [MIT](LICENSE) © 2026 Sergey Dobrovolskj

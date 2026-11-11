@@ -286,7 +286,12 @@ async function saveStages(stages) {
   const ws = workspace();
   if (!ws) return;
   const cfg = vscode.workspace.getConfiguration('taskKanban', workspaceFolderUri(ws));
-  await cfg.update('stages', stages, vscode.ConfigurationTarget.WorkspaceFolder);
+  // одна папка — налаштування робочої області (той самий .vscode/settings.json);
+  // робочий простір з кількох папок (.code-workspace) — налаштування саме цієї папки
+  const target = vscode.workspace.workspaceFile
+    ? vscode.ConfigurationTarget.WorkspaceFolder
+    : vscode.ConfigurationTarget.Workspace;
+  await cfg.update('stages', stages, target);
   log(stages ? `Колонки: ${stages.map((s) => s.dir).join(', ')}` : 'Колонки: стандартний список');
   postState();
 }
