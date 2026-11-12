@@ -257,3 +257,23 @@ test('колонки: додати, змінити, переставити, ви
 
   assert.equal(core.transitionsUsing([{ from: '*', to: '5_arkhiv' }, { to: '1_new' }], '5_arkhiv').length, 1);
 });
+
+test('трудомісткість: поле task.md → effort картки', () => {
+  const t = '# Task 1\n\n- **Статус:** виконані ші\n- **Трудомісткість:** 3:20 <!-- коментар -->\n';
+  assert.equal(core.readField(t, 'Трудомісткість'), '3:20');
+  assert.equal(core.readField('- **трудомісткість:** 14:30\n', 'Трудомісткість'), '14:30');
+  assert.equal(core.readField('- **Трудомісткість:** — <!-- заповнює агент -->\n', 'Трудомісткість'), null);
+  assert.equal(core.readField('- **Трудомісткість:**\n', 'Трудомісткість'), null);
+  assert.equal(core.readField('# без поля\n', 'Трудомісткість'), null);
+  assert.equal(core.readField(t, ''), null);
+  assert.equal(core.readField('- **Час (год):** 2:00\n', 'Час (год)'), '2:00');
+
+  const root = tmp();
+  const tasks = path.join(root, 'Tasks');
+  write(path.join(tasks, '1_new', '5', 'task.md'), t);
+  write(path.join(tasks, '1_new', '6', 'task.md'), '# Task 6\n');
+  const list = core.scanTasks(tasks, STAGES);
+  assert.equal(list.find((x) => x.id === '5').effort, '3:20');
+  assert.equal(list.find((x) => x.id === '6').effort, null);
+  assert.equal(core.scanTasks(tasks, STAGES, { effortField: '' }).find((x) => x.id === '5').effort, null);
+});

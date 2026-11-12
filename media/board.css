@@ -203,6 +203,11 @@ button.secondary:hover {
   background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground);
 }
+.badge.effort {
+  background: var(--vscode-statusBarItem-prominentBackground, var(--vscode-button-background));
+  color: var(--vscode-statusBarItem-prominentForeground, var(--vscode-button-foreground));
+  font-weight: 600;
+}
 .badge.warn {
   background: var(--vscode-inputValidation-warningBackground, #8a6d00);
   color: var(--vscode-foreground);

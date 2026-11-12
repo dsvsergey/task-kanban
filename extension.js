@@ -29,6 +29,7 @@ function workspace() {
         stages: cfg.get('stages', []),
         transitions: cfg.get('transitions', []),
         commitMessage: cfg.get('commitMessage', '{number}'),
+        effortField: cfg.get('effortField', 'Трудомісткість'),
       };
     }
   }
@@ -93,11 +94,12 @@ function postState() {
   if (!panel) return;
   const ws = workspace();
   if (!ws) return;
-  const tasks = core.scanTasks(ws.tasksRoot, ws.stages).map((t) => ({
+  const tasks = core.scanTasks(ws.tasksRoot, ws.stages, { effortField: ws.effortField }).map((t) => ({
     id: t.id,
     stage: t.stage,
     title: t.title,
     status: t.status,
+    effort: t.effort,
     hasSql: t.hasSql,
     hasNotes: !!t.notesFile,
     zipVersion: t.zipVersion,

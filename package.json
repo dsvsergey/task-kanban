@@ -2,7 +2,7 @@
   "name": "task-kanban",
   "displayName": "Task Kanban",
   "description": "Kanban board for <Name>Add task folders: columns are Tasks/<stage>/ folders; dragging a card moves the task and commits its files.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "publisher": "local",
   "license": "MIT",
   "private": true,
@@ -98,6 +98,12 @@
           "type": "string",
           "default": "{number}",
           "description": "Повідомлення коміту. Підстановки: {number}, {stage}, {status}, {title}."
+        },
+        "taskKanban.effortField": {
+          "scope": "resource",
+          "type": "string",
+          "default": "Трудомісткість",
+          "markdownDescription": "Поле `task.md` з часом на задачу (рядок `- **<поле>:** 3:20`), що показується на картці позначкою ⏱. Порожній рядок — не показувати."
         },
         "taskKanban.transitions": {
           "scope": "resource",

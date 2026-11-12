@@ -108,6 +108,8 @@ writes the package through the link straight into the source folder.
   колонки` (Reset columns) removes the override.
 - `+ Задача` (+ Task) / `Task Kanban: Нова задача` (New task) creates a folder from `Tasks/_template` in the first stage.
 - A yellow «статус: …» (status) badge means the status in `task.md` does not match the stage.
+- A «⏱ 3:20» chip shows the effort from the `- **Трудомісткість:** 3:20` line of `task.md` — the total time to
+  report to the customer (field name: `taskKanban.effortField`).
 - Task folders placed directly in `Tasks/` (outside any stage), or in a stage folder that is no longer in the
   column list, appear in the «Без етапу» (No stage) column; drag them to a column to file them.
 - Action log: Output panel → «Task Kanban».
@@ -120,6 +122,7 @@ In `.vscode/settings.json` of the `<Name>Add` folder.
 |---|---|---|
 | `taskKanban.tasksDir` | `Tasks` | tasks folder |
 | `taskKanban.templateDir` | `_template` | new task template inside `tasksDir` |
+| `taskKanban.effortField` | `Трудомісткість` | `task.md` field shown on the card as a ⏱ chip; empty — hide |
 | `taskKanban.stages` | `1_new` … `5_done` | columns: `dir`, `title`, `status` (value written to `task.md`), `collapsed` |
 | `taskKanban.commitMessage` | `{number}` | commit message: `{number}`, `{stage}`, `{status}`, `{title}` |
 | `taskKanban.transitions` | `[]` | actions on move |

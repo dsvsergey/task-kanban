@@ -51,6 +51,20 @@ function writeStatus(text, status) {
   return null;
 }
 
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Значення рядка «- **<label>:** …» з task.md; порожнє, «—» чи «-» — null. */
+function readField(text, label) {
+  if (!label) return null;
+  const re = new RegExp(`^[ \\t]*[-*][ \\t]*\\*\\*${escapeRegExp(label)}:\\*\\*([^\\r\\n]*)`, 'mi');
+  const m = re.exec(text);
+  if (!m) return null;
+  const v = stripComments(m[1]);
+  return v && !/^[—–-]+$/.test(v) ? v : null;
+}
+
 function readTitle(text) {
   const lines = text.split(/\r?\n/);
   const isMeta = (t) => /^[-*]\s*\*\*[^*]+:\*\*/.test(t);
@@ -84,7 +98,9 @@ function listDirs(dir) {
   }
 }
 
-function readTask(dir, id, stage) {
+const DEFAULT_EFFORT_FIELD = 'Трудомісткість';
+
+function readTask(dir, id, stage, opts = {}) {
   const taskFile = findTaskFile(dir);
   let text = '';
   if (taskFile) {
@@ -113,6 +129,7 @@ function readTask(dir, id, stage) {
     notesFile: files.find((f) => f.toLowerCase() === 'notes.md') ? path.join(dir, 'notes.md') : null,
     title: readTitle(text),
     status: readStatus(text),
+    effort: readField(text, opts.effortField === undefined ? DEFAULT_EFFORT_FIELD : opts.effortField),
     hasSql: files.some((f) => f.toLowerCase() === 'path.sql'),
     zipVersion,
   };
@@ -129,23 +146,23 @@ function compareIds(a, b) {
  * Задачі з усіх етапів. Каталоги просто в tasksDir (не етап, не `_*`) потрапляють
  * в етап '' — «без етапу».
  */
-function scanTasks(tasksRoot, stages) {
+function scanTasks(tasksRoot, stages, opts = {}) {
   const stageDirs = new Set(stages.map((s) => s.dir));
   const tasks = [];
   for (const s of stages) {
     for (const id of listDirs(path.join(tasksRoot, s.dir))) {
-      tasks.push(readTask(path.join(tasksRoot, s.dir, id), id, s.dir));
+      tasks.push(readTask(path.join(tasksRoot, s.dir, id), id, s.dir, opts));
     }
   }
   for (const id of listDirs(tasksRoot)) {
     if (stageDirs.has(id)) continue;
     const dir = path.join(tasksRoot, id);
     if (findTaskFile(dir)) {
-      tasks.push(readTask(dir, id, ''));
+      tasks.push(readTask(dir, id, '', opts));
       continue;
     }
     // каталог етапу, якого немає в списку колонок: його задачі — «без етапу»
-    for (const sub of listDirs(dir)) tasks.push(readTask(path.join(dir, sub), sub, ''));
+    for (const sub of listDirs(dir)) tasks.push(readTask(path.join(dir, sub), sub, '', opts));
   }
   tasks.sort((a, b) => compareIds(a.id, b.id));
   return tasks;
@@ -498,6 +515,7 @@ async function commitFiles(repo, files, message) {
 module.exports = {
   findTaskFile,
   readStatus,
+  readField,
   writeStatus,
   readTitle,
   readTask,

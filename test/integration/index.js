@@ -21,6 +21,7 @@ exports.run = async function () {
     const cfg = () => vscode.workspace.getConfiguration('taskKanban', folder.uri);
     const defaults = cfg().inspect('stages').defaultValue;
     check(defaults.length === 5, `стандартних колонок: ${defaults.length}`);
+    check(cfg().get('effortField') === 'Трудомісткість', 'налаштування effortField оголошене');
 
     const stages = [...defaults, { dir: '6_arkhiv', title: 'Архів', status: 'архів' }];
     await cfg().update('stages', stages, vscode.ConfigurationTarget.Workspace);

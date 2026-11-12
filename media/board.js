@@ -69,6 +69,11 @@
     if (t.title) c.appendChild(el('div', 'card-title', t.title));
 
     const badges = el('div', 'badges');
+    if (t.effort) {
+      const b = el('span', 'badge effort', `⏱ ${t.effort}`);
+      b.title = `Трудомісткість: ${t.effort}`;
+      badges.appendChild(b);
+    }
     if (t.hasSql) badges.appendChild(el('span', 'badge', 'path.sql'));
     if (t.zipVersion) badges.appendChild(el('span', 'badge zip', `zip v${t.zipVersion}`));
     const stage = state.stages.find((s) => s.dir === t.stage);

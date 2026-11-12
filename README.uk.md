@@ -106,6 +106,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
   перевизначення.
 - `+ Задача` / `Task Kanban: Нова задача` — каталог із `Tasks/_template` у першому етапі.
 - Жовтий бейдж «статус: …» — статус у `task.md` не збігається з етапом.
+- Позначка «⏱ 3:20» — трудомісткість з рядка `- **Трудомісткість:** 3:20` у `task.md`: загальний час для
+  звіту замовнику (назва поля — `taskKanban.effortField`).
 - Каталоги задач просто в `Tasks/` (поза етапами) або в каталозі етапу, якого вже немає в списку колонок,
   показуються в колонці «Без етапу»; звідти їх перетягують у потрібну колонку.
 - Журнал дій — панель Output → «Task Kanban».
@@ -118,6 +120,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 |---|---|---|
 | `taskKanban.tasksDir` | `Tasks` | каталог задач |
 | `taskKanban.templateDir` | `_template` | шаблон нової задачі всередині `tasksDir` |
+| `taskKanban.effortField` | `Трудомісткість` | поле `task.md`, що показується на картці позначкою ⏱; порожньо — не показувати |
 | `taskKanban.stages` | `1_new` … `5_done` | колонки: `dir`, `title`, `status` (значення для `task.md`), `collapsed` |
 | `taskKanban.commitMessage` | `{number}` | повідомлення коміту: `{number}`, `{stage}`, `{status}`, `{title}` |
 | `taskKanban.transitions` | `[]` | дії при перенесенні |
