@@ -260,15 +260,22 @@ function validateStageDir(tasksRoot, stages, dir) {
   return null;
 }
 
-/** Додає колонку після індексу after (-1 — на початок; за замовчуванням — у кінець) і створює каталог. */
+/**
+ * Новий список з колонкою після індексу after (-1 — на початок; за замовчуванням — у кінець).
+ * Каталог не створює: це робить ensureStageDir після того, як список збережено, — інакше збій запису
+ * налаштувань лишає порожній каталог без колонки.
+ */
 function addStage(tasksRoot, stages, stage, after = stages.length - 1) {
   const err = validateStageDir(tasksRoot, stages, stage.dir);
   if (err) throw new Error(err);
   const s = { dir: stage.dir.trim(), title: (stage.title || stage.dir).trim() };
   if (stage.status && stage.status.trim()) s.status = stage.status.trim();
-  fs.mkdirSync(path.join(tasksRoot, s.dir), { recursive: true });
   const at = Math.max(0, Math.min(stages.length, after + 1));
   return [...stages.slice(0, at), s, ...stages.slice(at)];
+}
+
+function ensureStageDir(tasksRoot, dir) {
+  fs.mkdirSync(path.join(tasksRoot, dir), { recursive: true });
 }
 
 function updateStage(stages, dir, patch) {
@@ -502,6 +509,7 @@ module.exports = {
   validateStageDir,
   suggestStageDir,
   addStage,
+  ensureStageDir,
   updateStage,
   moveStage,
   removeStage,

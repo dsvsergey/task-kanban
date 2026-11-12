@@ -215,6 +215,8 @@ test('колонки: додати, змінити, переставити, ви
   stages = core.addStage(tasks, stages, { dir: '5_arkhiv', title: ' Архів ', status: 'архів' }, 1);
   assert.deepEqual(stages.map((s) => s.dir), ['1_new', '3_work', '5_arkhiv', '4_testing']);
   assert.deepEqual(stages[2], { dir: '5_arkhiv', title: 'Архів', status: 'архів' });
+  assert.ok(!fs.existsSync(path.join(tasks, '5_arkhiv')), 'addStage каталог не створює');
+  core.ensureStageDir(tasks, '5_arkhiv');
   assert.ok(fs.existsSync(path.join(tasks, '5_arkhiv')));
   // без статусу; на початок
   stages = core.addStage(tasks, stages, { dir: '0_ideas', title: 'Ідеї', status: '  ' }, -1);

@@ -333,6 +333,8 @@ async function addColumn(after) {
     pos = pick.index;
   }
   await saveStages(core.addStage(ws.tasksRoot, ws.stages, { dir, title, status }, pos));
+  core.ensureStageDir(ws.tasksRoot, dir.trim());
+  postState();
 }
 
 async function editColumn(dir) {
