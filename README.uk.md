@@ -97,6 +97,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 - Дошка: кнопка **Задачі** в рядку стану або команда `Task Kanban: Відкрити дошку`.
 - Перетягнути картку в іншу колонку — перенести задачу.
 - Клік по картці — `task.md`; ✎ — `notes.md`; 📁 — показати в провіднику.
+- 💬 — сесії Claude Code, у яких виконувалась задача (пошук за номером задачі у ваших запитах; ★ — сесія
+  почалася з цієї задачі); вибрана відкривається в розширенні Claude Code, а без нього — у терміналі
+  `claude --resume <id>` (`taskKanban.sessionOpenIn`). Те саме — команда `Task Kanban: Сесії Claude Code задачі`.
 - Клік по заголовку колонки — згорнути/розгорнути.
 - **Колонки** (навести на заголовок колонки): ◀ ▶ — переставити, ✎ — змінити назву і статус для `task.md`,
   ＋ — додати колонку праворуч, ✕ — видалити (лише порожню; каталог видаляється, якщо в ньому лишився тільки
@@ -121,6 +124,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 | `taskKanban.tasksDir` | `Tasks` | каталог задач |
 | `taskKanban.templateDir` | `_template` | шаблон нової задачі всередині `tasksDir` |
 | `taskKanban.effortField` | `Трудомісткість` | поле `task.md`, що показується на картці позначкою ⏱; порожньо — не показувати |
+| `taskKanban.sessionOpenIn` | `auto` | де 💬 відкриває сесію: `auto` (розширення, інакше термінал), `extension`, `terminal` |
 | `taskKanban.stages` | `1_new` … `5_done` | колонки: `dir`, `title`, `status` (значення для `task.md`), `collapsed` |
 | `taskKanban.commitMessage` | `{number}` | повідомлення коміту: `{number}`, `{stage}`, `{status}`, `{title}` |
 | `taskKanban.transitions` | `[]` | дії при перенесенні |

@@ -37,7 +37,7 @@ exports.run = async function () {
     check(cfg().get('stages').length === 5, 'скидання до стандартних колонок');
 
     const cmds = await vscode.commands.getCommands(true);
-    for (const c of ['taskKanban.open', 'taskKanban.newTask', 'taskKanban.refresh', 'taskKanban.addColumn', 'taskKanban.resetColumns']) {
+    for (const c of ['taskKanban.open', 'taskKanban.newTask', 'taskKanban.refresh', 'taskKanban.addColumn', 'taskKanban.resetColumns', 'taskKanban.openTaskSession']) {
       check(cmds.includes(c), `команда ${c}`);
     }
     await vscode.commands.executeCommand('taskKanban.open');

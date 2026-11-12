@@ -410,6 +410,119 @@ function missingFiles(taskDir, masks) {
   return (masks || []).filter((m) => !names.some((n) => globToRegExp(m).test(n)));
 }
 
+// ---------- сесії Claude Code ----------
+// Сесії лежать у <claudeDir>/projects/<шлях робочої папки, де все крім латиниці й цифр → '->/<id>.jsonl.
+// Задачу шукаємо за номером у запитах користувача. Не рахуються: службові вставки (isMeta — тексти скілів),
+// результати інструментів, відкриті в редакторі файли (<ide_opened_file>), нагадування, вивід команд.
+
+function claudeProjectDir(claudeDir, workspaceFolder) {
+  return path.join(claudeDir, 'projects', path.resolve(workspaceFolder).replace(/[^A-Za-z0-9]/g, '-'));
+}
+
+const IGNORED_TAGS =
+  /<(ide_opened_file|ide_selection|system-reminder|local-command-stdout|local-command-stderr|local-command-caveat)>[\s\S]*?<\/\1>/g;
+
+function userPromptText(obj) {
+  if (!obj || obj.type !== 'user' || obj.isMeta || obj.isSidechain || !obj.message) return null;
+  const c = obj.message.content;
+  let parts;
+  if (typeof c === 'string') parts = [c];
+  else if (Array.isArray(c)) parts = c.filter((x) => x && x.type === 'text' && typeof x.text === 'string').map((x) => x.text);
+  else return null;
+  const text = parts.join('\n').replace(IGNORED_TAGS, ' ').trim();
+  return text || null;
+}
+
+const NUM_RE = /\d{4,}/g;
+const TS_RE = /"timestamp":"([^"]+)"/;
+
+/** Короткий опис однієї сесії: назва, перший запит, час, номери (4+ цифр) з запитів користувача. */
+function summarizeTranscript(text, sessionId) {
+  const s = { sessionId, title: null, aiTitle: null, firstPrompt: null, start: null, end: null, numbers: new Set(), firstNumbers: new Set() };
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    const ts = TS_RE.exec(line);
+    if (ts) {
+      if (!s.start) s.start = ts[1];
+      s.end = ts[1];
+    }
+    const isUser = line.includes('"type":"user"');
+    const isTitle = line.includes('"custom-title"') || line.includes('"ai-title"');
+    if (!isUser && !isTitle) continue;
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (obj.type === 'custom-title' && obj.customTitle) s.title = obj.customTitle;
+    else if (obj.type === 'ai-title' && obj.aiTitle) s.aiTitle = obj.aiTitle;
+    const prompt = userPromptText(obj);
+    if (!prompt) continue;
+    const nums = prompt.match(NUM_RE) || [];
+    if (!s.firstPrompt) {
+      s.firstPrompt = prompt.replace(/\s+/g, ' ').slice(0, 200);
+      for (const n of nums) s.firstNumbers.add(n);
+    }
+    for (const n of nums) s.numbers.add(n);
+  }
+  // назва з auto-title теж підказує задачу («Задача 86170 …»)
+  for (const n of (s.aiTitle || '').match(NUM_RE) || []) s.numbers.add(n);
+  for (const n of (s.title || '').match(NUM_RE) || []) s.numbers.add(n);
+  return s;
+}
+
+/**
+ * Сесії, де згадується задача. cache — Map(file → {mtimeMs, size, summary}), щоб не перечитувати незмінені файли.
+ * Номер задачі «86937_86525» — збіг за будь-якою з частин (4+ цифр).
+ */
+async function findTaskSessions(projectDir, taskId, cache = new Map()) {
+  const keys = String(taskId).match(NUM_RE) || [String(taskId)];
+  let names;
+  try {
+    names = await fs.promises.readdir(projectDir);
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const name of names) {
+    if (!name.endsWith('.jsonl')) continue;
+    const file = path.join(projectDir, name);
+    let st;
+    try {
+      st = await fs.promises.stat(file);
+    } catch {
+      continue;
+    }
+    if (!st.isFile()) continue;
+    let entry = cache.get(file);
+    if (!entry || entry.mtimeMs !== st.mtimeMs || entry.size !== st.size) {
+      let text;
+      try {
+        text = await fs.promises.readFile(file, 'utf8');
+      } catch {
+        continue;
+      }
+      entry = { mtimeMs: st.mtimeMs, size: st.size, summary: summarizeTranscript(text, name.slice(0, -6)) };
+      cache.set(file, entry);
+    }
+    const s = entry.summary;
+    if (!keys.some((k) => s.numbers.has(k))) continue;
+    out.push({
+      sessionId: s.sessionId,
+      file,
+      title: s.title || s.aiTitle || s.firstPrompt || s.sessionId,
+      firstPrompt: s.firstPrompt,
+      start: s.start,
+      end: s.end || new Date(st.mtimeMs).toISOString(),
+      primary: keys.some((k) => s.firstNumbers.has(k)),
+    });
+  }
+  // спершу сесії, що почалися з цієї задачі, далі — свіжіші
+  out.sort((a, b) => (b.primary - a.primary) || String(b.end).localeCompare(String(a.end)));
+  return out;
+}
+
 // ---------- git ----------
 
 function git(cwd, args, opts = {}) {
@@ -516,6 +629,10 @@ module.exports = {
   findTaskFile,
   readStatus,
   readField,
+  claudeProjectDir,
+  userPromptText,
+  summarizeTranscript,
+  findTaskSessions,
   writeStatus,
   readTitle,
   readTask,

@@ -2,7 +2,7 @@
   "name": "task-kanban",
   "displayName": "Task Kanban",
   "description": "Kanban board for <Name>Add task folders: columns are Tasks/<stage>/ folders; dragging a card moves the task and commits its files.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "local",
   "license": "MIT",
   "private": true,
@@ -42,6 +42,11 @@
       {
         "command": "taskKanban.resetColumns",
         "title": "Повернути стандартні колонки",
+        "category": "Task Kanban"
+      },
+      {
+        "command": "taskKanban.openTaskSession",
+        "title": "Сесії Claude Code задачі",
         "category": "Task Kanban"
       }
     ],
@@ -104,6 +109,18 @@
           "type": "string",
           "default": "Трудомісткість",
           "markdownDescription": "Поле `task.md` з часом на задачу (рядок `- **<поле>:** 3:20`), що показується на картці позначкою ⏱. Порожній рядок — не показувати."
+        },
+        "taskKanban.sessionOpenIn": {
+          "scope": "resource",
+          "type": "string",
+          "enum": ["auto", "extension", "terminal"],
+          "enumDescriptions": [
+            "Розширення Claude Code, якщо встановлене, інакше термінал (claude --resume)",
+            "Розширення Claude Code; без нього — термінал з попередженням",
+            "Завжди термінал: claude --resume <id>"
+          ],
+          "default": "auto",
+          "markdownDescription": "Де відкривати сесію Claude Code, вибрану кнопкою 💬 на картці."
         },
         "taskKanban.transitions": {
           "scope": "resource",

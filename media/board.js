@@ -62,7 +62,13 @@
       e.stopPropagation();
       vscode.postMessage({ type: 'reveal', id: t.id });
     });
-    tools.append(notes, reveal);
+    const chat = el('button', 'icon', '💬');
+    chat.title = 'Сесії Claude Code цієї задачі';
+    chat.addEventListener('click', (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ type: 'sessions', id: t.id });
+    });
+    tools.append(chat, notes, reveal);
     head.appendChild(tools);
     c.appendChild(head);
 

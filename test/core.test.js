@@ -277,3 +277,50 @@ test('трудомісткість: поле task.md → effort картки', (
   assert.equal(list.find((x) => x.id === '6').effort, null);
   assert.equal(core.scanTasks(tasks, STAGES, { effortField: '' }).find((x) => x.id === '5').effort, null);
 });
+
+test('сесії Claude Code: пошук за номером задачі', async () => {
+  assert.equal(
+    core.claudeProjectDir('C:/h/.claude', 'D:/nprojects/UltraAdd'),
+    path.join('C:/h/.claude', 'projects', path.resolve('D:/nprojects/UltraAdd').replace(/[^A-Za-z0-9]/g, '-')),
+  );
+
+  const dir = tmp();
+  const L = (o) => JSON.stringify(o);
+  const user = (content, extra = {}) => L({ type: 'user', timestamp: extra.ts || '2026-11-10T10:00:00Z', message: { role: 'user', content }, ...extra });
+  // A: почалася з задачі 86170, має назву
+  write(path.join(dir, 'aaaa.jsonl'), [
+    user([{ type: 'text', text: '<ide_opened_file>Tasks/3_work/99999/task.md</ide_opened_file>' }, { type: 'text', text: 'виконайте задачу @Tasks/2_queue/86170/task.md' }], { ts: '2026-11-10T10:00:00Z' }),
+    L({ type: 'ai-title', aiTitle: 'Задача 86170 Delphi' }),
+    L({ type: 'assistant', timestamp: '2026-11-10T12:00:00Z', message: { content: 'про 55555' } }),
+  ].join('\n'));
+  // B: задача 86170 згадується пізніше; 12345 — лише в isMeta, tool_result і system-reminder
+  write(path.join(dir, 'bbbb.jsonl'), [
+    user('поправте звіт 70000', { ts: '2026-11-11T09:00:00Z' }),
+    user([{ type: 'text', text: 'Base directory for this skill … задача 12345' }], { isMeta: true }),
+    user([{ type: 'tool_result', content: '12345' }]),
+    user('і ще 86170 <system-reminder>12345</system-reminder>', { ts: '2026-11-11T11:00:00Z' }),
+    L({ type: 'custom-title', customTitle: 'Моя назва' }),
+  ].join('\n'));
+  write(path.join(dir, 'notes.txt'), '86170');
+
+  const cache = new Map();
+  let s = await core.findTaskSessions(dir, '86170', cache);
+  assert.deepEqual(s.map((x) => [x.sessionId, x.primary, x.title]), [
+    ['aaaa', true, 'Задача 86170 Delphi'],
+    ['bbbb', false, 'Моя назва'],
+  ]);
+  assert.equal(s[0].start, '2026-11-10T10:00:00Z');
+  assert.equal(s[0].end, '2026-11-10T12:00:00Z');
+  assert.equal(s[0].firstPrompt, 'виконайте задачу @Tasks/2_queue/86170/task.md');
+
+  // відкритий у редакторі файл, isMeta, результат інструмента, нагадування, відповідь асистента — не рахуються
+  for (const id of ['99999', '12345', '55555']) assert.equal((await core.findTaskSessions(dir, id, cache)).length, 0, id);
+  // складений номер — за будь-якою частиною
+  assert.equal((await core.findTaskSessions(dir, '70000_86170', cache)).length, 2);
+  // кеш: незмінений файл не перечитується
+  const before = cache.get(path.join(dir, 'aaaa.jsonl'));
+  await core.findTaskSessions(dir, '86170', cache);
+  assert.equal(cache.get(path.join(dir, 'aaaa.jsonl')), before);
+  // немає каталогу — порожньо
+  assert.deepEqual(await core.findTaskSessions(path.join(dir, 'нема'), '86170'), []);
+});

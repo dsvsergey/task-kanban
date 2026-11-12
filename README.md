@@ -99,6 +99,10 @@ writes the package through the link straight into the source folder.
 - Board: the **Задачі** (Tasks) button in the status bar, or the command `Task Kanban: Відкрити дошку` (Open board).
 - Drag a card to another column to move the task.
 - Click a card to open `task.md`; ✎ opens `notes.md`; 📁 reveals the folder in the Explorer.
+- 💬 lists the Claude Code sessions in which the task was worked on (found by the task number in your prompts;
+  ★ — the session started with this task) and opens the chosen one in the Claude Code extension, or in a
+  terminal with `claude --resume <id>` if the extension is not installed (`taskKanban.sessionOpenIn`). Also:
+  `Task Kanban: Сесії Claude Code задачі` (Claude Code sessions of a task).
 - Click a column header to collapse/expand it.
 - **Columns** (hover a column header): ◀ ▶ move it, ✎ rename it and change its `task.md` status, ＋ add a
   column to the right, ✕ delete it (only an empty one; its folder is removed if nothing but `.gitkeep` is left).
@@ -123,6 +127,7 @@ In `.vscode/settings.json` of the `<Name>Add` folder.
 | `taskKanban.tasksDir` | `Tasks` | tasks folder |
 | `taskKanban.templateDir` | `_template` | new task template inside `tasksDir` |
 | `taskKanban.effortField` | `Трудомісткість` | `task.md` field shown on the card as a ⏱ chip; empty — hide |
+| `taskKanban.sessionOpenIn` | `auto` | where 💬 opens a session: `auto` (extension, else terminal), `extension`, `terminal` |
 | `taskKanban.stages` | `1_new` … `5_done` | columns: `dir`, `title`, `status` (value written to `task.md`), `collapsed` |
 | `taskKanban.commitMessage` | `{number}` | commit message: `{number}`, `{stage}`, `{status}`, `{title}` |
 | `taskKanban.transitions` | `[]` | actions on move |

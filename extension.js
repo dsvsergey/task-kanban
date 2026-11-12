@@ -30,6 +30,7 @@ function workspace() {
         transitions: cfg.get('transitions', []),
         commitMessage: cfg.get('commitMessage', '{number}'),
         effortField: cfg.get('effortField', 'Трудомісткість'),
+        sessionOpenIn: cfg.get('sessionOpenIn', 'auto'),
       };
     }
   }
@@ -133,6 +134,9 @@ async function onMessage(m, context) {
         if (t) await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(t.dir));
         break;
       }
+      case 'sessions':
+        await pickTaskSession(m.id);
+        break;
       case 'move':
         await move(ws, m.id, m.to);
         break;
@@ -274,6 +278,74 @@ async function runCommits(ws, task, stage, commitActions) {
     done.push(`${g.name} ${hash}`);
   }
   if (done.length) vscode.window.showInformationMessage(`${task.id}: закомічено — ${done.join(', ')}`);
+}
+
+// ---------- сесії Claude Code ----------
+
+const sessionCache = new Map();
+
+function claudeDir() {
+  return process.env.CLAUDE_CONFIG_DIR || path.join(require('os').homedir(), '.claude');
+}
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Список сесій Claude Code, у яких виконувалась задача, і відкриття вибраної. */
+async function pickTaskSession(id) {
+  const ws = requireWorkspace();
+  if (!ws) return;
+  if (!id) {
+    id = await vscode.window.showInputBox({ title: 'Сесії Claude Code задачі', prompt: 'Номер задачі' });
+    if (!id) return;
+    id = id.trim();
+  }
+  const dir = core.claudeProjectDir(claudeDir(), ws.folder);
+  const sessions = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Window, title: `Пошук сесій задачі ${id}` },
+    () => core.findTaskSessions(dir, id, sessionCache),
+  );
+  if (!sessions.length) {
+    vscode.window.showInformationMessage(`Сесій Claude Code із задачею ${id} не знайдено (${dir}).`);
+    return;
+  }
+  const items = sessions.map((s) => ({
+    label: `${s.primary ? '$(star-full)' : '$(comment-discussion)'} ${s.title}`,
+    description: fmtDate(s.end),
+    detail: [s.primary ? 'почалася з цієї задачі' : 'задача згадується', s.firstPrompt && s.firstPrompt !== s.title ? s.firstPrompt : '']
+      .filter(Boolean)
+      .join(' · '),
+    session: s,
+  }));
+  const pick = await vscode.window.showQuickPick(items, {
+    title: `Сесії Claude Code — задача ${id}`,
+    placeHolder: 'Вибрати сесію, щоб відкрити її',
+    matchOnDescription: true,
+    matchOnDetail: true,
+  });
+  if (pick) await openSession(ws, id, pick.session);
+}
+
+async function openSession(ws, id, s) {
+  if (ws.sessionOpenIn !== 'terminal') {
+    const cmds = await vscode.commands.getCommands(true);
+    if (cmds.includes('claude-vscode.primaryEditor.open')) {
+      log(`${id}: відкриваю сесію ${s.sessionId} у Claude Code`);
+      await vscode.commands.executeCommand('claude-vscode.primaryEditor.open', s.sessionId);
+      return;
+    }
+    if (ws.sessionOpenIn === 'extension') {
+      vscode.window.showWarningMessage('Розширення Claude Code не знайдено — відкриваю сесію в терміналі.');
+    }
+  }
+  log(`${id}: claude --resume ${s.sessionId} у терміналі`);
+  const term = vscode.window.createTerminal({ name: `Claude · ${id}`, cwd: ws.folder });
+  term.show();
+  term.sendText(`claude --resume ${s.sessionId}`);
 }
 
 // ---------- колонки ----------
@@ -423,6 +495,7 @@ function activate(context) {
     vscode.commands.registerCommand('taskKanban.refresh', () => postState()),
     vscode.commands.registerCommand('taskKanban.addColumn', () => addColumn()),
     vscode.commands.registerCommand('taskKanban.resetColumns', () => resetColumns()),
+    vscode.commands.registerCommand('taskKanban.openTaskSession', (id) => pickTaskSession(id)),
   );
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
