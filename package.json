@@ -2,7 +2,7 @@
   "name": "task-kanban",
   "displayName": "Task Kanban",
   "description": "Kanban board for <Name>Add task folders: columns are Tasks/<stage>/ folders; dragging a card moves the task and commits its files.",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "local",
   "license": "MIT",
   "private": true,
@@ -118,6 +118,12 @@
           "type": "string",
           "default": "{number}",
           "description": "Повідомлення коміту. Підстановки: {number}, {stage}, {status}, {title}."
+        },
+        "taskKanban.accumulateCommits": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Накопичувати коміти задачі: якщо останній коміт репозиторію має те саме повідомлення (`commitMessage`, тобто та сама задача), ще не відправлений (`push`), не merge і HEAD на гілці — коміт перенесення доповнює його (`git commit --amend --only`), а не створює новий. Вимкнено — кожне перенесення окремим комітом."
         },
         "taskKanban.effortField": {
           "scope": "resource",

@@ -169,6 +169,58 @@ test('коміт: лише файли задачі, з переносом і к�
   assert.match(p.warning, /не git-репозиторій/);
 });
 
+test('накопичення комітів: перенесення доповнює невідправлений коміт задачі', async () => {
+  const add = tmp();
+  initRepo(add);
+  const tasks = path.join(add, 'Tasks');
+  write(path.join(add, 'README.md'), 'init');
+  g(add, 'add', '-A');
+  g(add, 'commit', '-qm', 'init');
+  assert.equal((await core.amendableHead(add, '42')).reason, 'інше повідомлення');
+
+  const commitTask = async (to) => {
+    const vars = { number: '42', stage: to, workspaceFolder: add };
+    const task = to ? (await core.moveTask(tasks, STAGES, '42', to)).task : core.findTask(tasks, STAGES, '42');
+    const c = await core.collectCommit({ paths: ['Tasks/*/{number}/**'] }, { workspaceFolder: add, task, vars });
+    const amend = !!(await core.amendableHead(c.repo, '42')).hash;
+    return { amend, hash: await core.commitFiles(c.repo, c.files.map((f) => f.path), '42', { amend }) };
+  };
+  const count = () => Number(g(add, 'rev-list', '--count', 'HEAD').trim());
+
+  // створення задачі — новий коміт; перенесення — доповнює його, чужі зміни не чіпає
+  write(path.join(tasks, '1_new', '42', 'task.md'), '# Task 42\n\n- **Статус:** нове\n');
+  assert.equal((await commitTask(null)).amend, false);
+  assert.equal(count(), 2);
+  write(path.join(add, 'README.md'), 'чуже');
+  const r = await commitTask('3_work');
+  assert.equal(r.amend, true);
+  assert.equal(count(), 2, 'коміт не додався');
+  assert.equal(g(add, 'log', '-1', '--format=%s').trim(), '42');
+  assert.deepEqual(g(add, 'show', '--name-status', '--format=', 'HEAD').trim().split('\n'), ['A\tTasks/3_work/42/task.md']);
+  assert.equal(g(add, 'status', '--porcelain').trim(), 'M README.md');
+
+  // інша задача між ними — новий коміт
+  g(add, 'commit', '-qam', '43');
+  assert.equal((await core.amendableHead(add, '42')).reason, 'інше повідомлення');
+  assert.equal((await commitTask('4_testing')).amend, false);
+  assert.equal(count(), 4);
+
+  // відправлений коміт не переписується
+  const remote = tmp();
+  g(remote, 'init', '-q', '--bare');
+  g(add, 'remote', 'add', 'origin', remote);
+  g(add, 'push', '-q', 'origin', 'HEAD:refs/heads/main');
+  g(add, 'fetch', '-q', 'origin');
+  assert.equal((await core.amendableHead(add, '42')).reason, 'уже відправлений');
+
+  // detached HEAD і порожній репозиторій
+  g(add, 'checkout', '-q', '--detach');
+  assert.equal((await core.amendableHead(add, '42')).reason, 'HEAD не на гілці');
+  const empty = tmp();
+  initRepo(empty);
+  assert.equal((await core.amendableHead(empty, '42')).reason, 'комітів ще немає');
+});
+
 test('зайнятий каталог: повтори, потім зрозуміла помилка (Windows)', { skip: process.platform !== 'win32' }, async () => {
   const root = tmp();
   const tasks = path.join(root, 'Tasks');

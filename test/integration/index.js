@@ -44,6 +44,10 @@ exports.run = async function () {
     check(cfg().get('projectField') === 'Проекти', 'налаштування projectField оголошене');
     check(cfg().get('parentField') === 'Батьківська задача', 'налаштування parentField оголошене');
     check(cfg().get('subtasksHeading') === 'Підзадачі', 'налаштування subtasksHeading оголошене');
+    check(cfg().get('accumulateCommits') === true, 'налаштування accumulateCommits оголошене (true)');
+    await cfg().update('accumulateCommits', false, vscode.ConfigurationTarget.WorkspaceFolder);
+    check(cfg().get('accumulateCommits') === false, 'запис accumulateCommits у налаштування папки (scope: resource)');
+    await cfg().update('accumulateCommits', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
     await cfg().update('subtasksHeading', 'Subtasks', vscode.ConfigurationTarget.WorkspaceFolder);
     check(cfg().get('subtasksHeading') === 'Subtasks', 'запис subtasksHeading у налаштування папки (scope: resource)');
     await cfg().update('subtasksHeading', undefined, vscode.ConfigurationTarget.WorkspaceFolder);

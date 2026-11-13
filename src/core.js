@@ -1233,16 +1233,53 @@ async function collectCommit(action, ctx) {
   return { repo, name, files };
 }
 
-async function commitFiles(repo, files, message) {
+/**
+ * Чи можна доповнити (amend) останній коміт замість нового — щоб перенесення задачі між колонками
+ * не накопичували окремі коміти. Можна, якщо HEAD:
+ * - на гілці (не detached), без незавершеного merge/rebase/cherry-pick;
+ * - не merge-коміт;
+ * - має те саме повідомлення, що й новий коміт (за замовчуванням — номер задачі);
+ * - ще не відправлений: не входить у жодну remote-гілку.
+ * Повертає { hash } (короткий хеш HEAD) або { reason } — чому ні.
+ */
+async function amendableHead(repo, message) {
+  const want = String(message || '').trim();
+  if (!want) return { reason: 'порожнє повідомлення' };
+  let head;
+  try {
+    head = (await git(repo, ['rev-parse', '--verify', '-q', 'HEAD'])).trim();
+  } catch {
+    return { reason: 'комітів ще немає' };
+  }
+  try {
+    await git(repo, ['symbolic-ref', '-q', 'HEAD']);
+  } catch {
+    return { reason: 'HEAD не на гілці' };
+  }
+  const gitDir = path.resolve(repo, (await git(repo, ['rev-parse', '--git-dir'])).trim());
+  for (const f of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply']) {
+    if (fs.existsSync(path.join(gitDir, f))) return { reason: 'незавершена операція git' };
+  }
+  const parents = (await git(repo, ['rev-list', '--parents', '-n', '1', head])).trim().split(/\s+/).length - 1;
+  if (parents > 1) return { reason: 'merge-коміт' };
+  const body = (await git(repo, ['log', '-1', '--format=%B', head])).trim();
+  if (body !== want) return { reason: 'інше повідомлення' };
+  const remote = (await git(repo, ['branch', '-r', '--contains', head])).trim();
+  if (remote) return { reason: 'уже відправлений' };
+  return { hash: head.slice(0, 7) };
+}
+
+/** Коміт лише вибраних файлів; opts.amend — доповнити останній коміт (див. amendableHead). */
+async function commitFiles(repo, files, message, opts = {}) {
   if (!files.length) return null;
   const listFile = path.join(os.tmpdir(), `task-kanban-${process.pid}-${Date.now()}.txt`);
   fs.writeFileSync(listFile, files.join('\0'), 'utf8');
   const env = { GIT_LITERAL_PATHSPECS: '1' };
   try {
     await git(repo, ['add', '-A', `--pathspec-from-file=${listFile}`, '--pathspec-file-nul'], { env });
-    await git(repo, ['commit', '-m', message, '--only', `--pathspec-from-file=${listFile}`, '--pathspec-file-nul'], {
-      env,
-    });
+    const args = ['commit', '-m', message, '--only', `--pathspec-from-file=${listFile}`, '--pathspec-file-nul'];
+    if (opts.amend) args.splice(1, 0, '--amend');
+    await git(repo, args, { env });
     return (await git(repo, ['rev-parse', '--short', 'HEAD'])).trim();
   } finally {
     fs.rmSync(listFile, { force: true });
@@ -1316,5 +1353,6 @@ module.exports = {
   parsePorcelainZ,
   changedFiles,
   collectCommit,
+  amendableHead,
   commitFiles,
 };

@@ -235,6 +235,7 @@ In `.vscode/settings.json` of the `<Name>Add` folder.
 | `taskKanban.parentField` | `Батьківська задача` | subtask's `task.md` field with the `[[number]]` link to its parent |
 | `taskKanban.subtasksHeading` | `Підзадачі` | `task.md` section with the list of subtasks and the split plan |
 | `taskKanban.commitMessage` | `{number}` | commit message: `{number}`, `{stage}`, `{status}`, `{title}` |
+| `taskKanban.accumulateCommits` | `true` | accumulate a task's commits: a move amends the task's last unpushed commit |
 | `taskKanban.transitions` | `[]` | actions on move |
 
 ### Transitions
@@ -263,6 +264,10 @@ In `.vscode/settings.json` of the `<Name>Add` folder.
   (case-insensitive), and only changed files are committed.
 - Before committing, a checklist of files is shown; Esc skips the commit (the move stays).
 - **Only** the selected files are committed (`git commit --only`): other changes, even staged ones, stay out.
+- A task's commits accumulate (`taskKanban.accumulateCommits`): if the repository's last commit has the same
+  message (same task), is not pushed to a remote, is not a merge and HEAD is on a branch, the move amends it
+  (`git commit --amend --only`) instead of adding a new one. The file list title shows "new" or "amend <hash>".
+  Another task's commit or a `push` in between means a new commit.
 - A folder that is not a git repository is skipped with a warning. Nothing is pushed.
 
 ## Development

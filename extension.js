@@ -31,6 +31,7 @@ function workspace() {
         stages: cfg.get('stages', []),
         transitions: cfg.get('transitions', []),
         commitMessage: cfg.get('commitMessage', '{number}'),
+        accumulateCommits: cfg.get('accumulateCommits', true),
         effortField: cfg.get('effortField', 'Трудомісткість'),
         projectField: cfg.get('projectField', 'Проекти') || 'Проекти',
         parentField: cfg.get('parentField', core.DEFAULT_PARENT_FIELD) || core.DEFAULT_PARENT_FIELD,
@@ -731,9 +732,21 @@ async function runCommits(ws, ctx, task, stage, commitActions) {
     }
   }
   const message = core.fill(ws.commitMessage, vars);
+  // накопичення: останній невідправлений коміт з тим самим повідомленням доповнюється, а не множиться
+  if (ws.accumulateCommits) {
+    for (const g of groups) {
+      const r = await core.amendableHead(g.repo, message);
+      g.amend = r.hash || null;
+      if (!r.hash) log(`${g.name}: новий коміт (${r.reason})`);
+    }
+  }
+  const amends = groups.filter((g) => g.amend);
+  const how = amends.length
+    ? `доповнити ${amends.map((g) => (groups.length > 1 ? `${g.name} ${g.amend}` : g.amend)).join(', ')}`
+    : 'новий';
   const picked = await vscode.window.showQuickPick(items, {
     canPickMany: true,
-    title: `Коміт «${message}» — задача ${task.id} → ${stage.title || stage.dir}`,
+    title: `Коміт «${message}» (${how}) — задача ${task.id} → ${stage.title || stage.dir}`,
     placeHolder: 'Зніміть галочки з файлів, які не треба комітити; Esc — не комітити',
     ignoreFocusOut: true,
   });
@@ -745,9 +758,10 @@ async function runCommits(ws, ctx, task, stage, commitActions) {
   for (const g of groups) {
     const files = picked.filter((p) => p.group === g).map((p) => p.file);
     if (!files.length) continue;
-    const hash = await core.commitFiles(g.repo, files, message);
-    log(`${g.name}: коміт ${hash} (${files.length} файл.)`);
-    done.push(`${g.name} ${hash}`);
+    const amend = g.amend && (await core.amendableHead(g.repo, message)).hash === g.amend; // HEAD міг змінитись
+    const hash = await core.commitFiles(g.repo, files, message, { amend });
+    log(`${g.name}: ${amend ? `доповнено коміт ${g.amend} → ${hash}` : `коміт ${hash}`} (${files.length} файл.)`);
+    done.push(`${g.name} ${hash}${amend ? ' (доповнено)' : ''}`);
   }
   if (done.length) vscode.window.showInformationMessage(`${task.id}: закомічено — ${done.join(', ')}`);
 }
