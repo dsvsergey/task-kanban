@@ -324,3 +324,270 @@ test('сесії Claude Code: пошук за номером задачі', asyn
   // немає каталогу — порожньо
   assert.deepEqual(await core.findTaskSessions(path.join(dir, 'нема'), '86170'), []);
 });
+
+// ---------- проекти ----------
+
+test('поле «Проекти»: примітки в дужках, кома в дужках, `код`, прочерк', () => {
+  assert.deepEqual(core.parseProjectList('Ultra'), ['Ultra']);
+  assert.deepEqual(core.parseProjectList('Ultra (БД), ultra-replicator (лише аналіз)'), ['Ultra', 'ultra-replicator']);
+  assert.deepEqual(core.parseProjectList('Ultra (ultra-delphi, Ultra)'), ['Ultra']);
+  assert.deepEqual(core.parseProjectList('ultra-delphi (міграції `sql/3.0.*.sql`)'), ['ultra-delphi']);
+  assert.deepEqual(core.parseProjectList('A; B'), ['A', 'B']);
+  assert.deepEqual(core.parseProjectList(null), []);
+  assert.deepEqual(core.parseProjectList('—'), []);
+});
+
+test('проекти: налаштовані за id/title/aliases, решта — з задач', () => {
+  const tasks = [
+    { id: '1', projects: ['Ultra'] },
+    { id: '2', projects: ['ultra-delphi', 'task-kanban'] },
+    { id: '3', projects: ['Інше'] },
+    { id: '4', projects: [] },
+  ];
+  const { projects, projectsOf } = core.resolveProjects(
+    [
+      { id: 'ultra', title: 'Ultra', aliases: ['ultra-delphi'] },
+      { id: 'task-kanban', title: 'Task Kanban' },
+      { id: 'ultra', title: 'дубль' },
+    ],
+    tasks,
+  );
+  assert.deepEqual(projects.map((p) => [p.id, p.configured]), [['ultra', true], ['task-kanban', true], ['Інше', false]]);
+  assert.deepEqual(projectsOf(tasks[0]), ['ultra']);
+  assert.deepEqual(projectsOf(tasks[1]), ['ultra', 'task-kanban']);
+  assert.deepEqual(projectsOf(tasks[2]), ['Інше']);
+  assert.deepEqual(core.filterByProject(tasks, projectsOf, 'ultra').map((t) => t.id), ['1', '2']);
+  assert.deepEqual(core.filterByProject(tasks, projectsOf, '').map((t) => t.id), ['4']);
+  assert.equal(core.filterByProject(tasks, projectsOf, '*').length, 4);
+  assert.ok(projects.every((p) => p.color));
+});
+
+test('трудомісткість і зведення по проекту', () => {
+  assert.equal(core.parseEffort('3:20'), 200);
+  assert.equal(core.parseEffort('14:05'), 845);
+  assert.equal(core.parseEffort('2'), 120);
+  assert.equal(core.parseEffort('—'), null);
+  assert.equal(core.formatMinutes(845), '14:05');
+  const stages = [...STAGES, { dir: '5_done', collapsed: true }, { dir: '8_last' }];
+  assert.deepEqual([...core.doneStages(stages)].sort(), ['5_done', '8_last']);
+  assert.deepEqual([...core.doneStages([...STAGES, { dir: 'x', done: true }])], ['x']);
+  const st = core.projectStats(
+    [
+      { stage: '1_new', effort: '1:30', updated: 5 },
+      { stage: '5_done', effort: '2:00', updated: 9 },
+      { stage: '', effort: null, updated: 1 },
+    ],
+    stages,
+  );
+  assert.equal(st.total, 3);
+  assert.equal(st.active, 2);
+  assert.equal(st.done, 1);
+  assert.equal(st.byStage['1_new'], 1);
+  assert.equal(st.noStage, 1);
+  assert.equal(st.effortMinutes, 210);
+  assert.equal(st.withEffort, 2);
+  assert.equal(st.updated, 9);
+});
+
+test('writeField: заміна, вставка після полів шапки, без полів', () => {
+  const a = '# Task 1\r\n\r\n- **Статус:** нове\r\n- **Проекти:** Ultra <!-- x -->\r\n\r\n## Description\r\n';
+  assert.equal(core.writeField(a, 'Проекти', 'A, B'), a.replace('Ultra <!-- x -->', 'A, B'));
+  const b = '# Task 1\n\n- **Статус:** нове\n\n## Description\n- **Не поле:** x\n';
+  assert.equal(core.writeField(b, 'Проекти', 'A'), '# Task 1\n\n- **Статус:** нове\n- **Проекти:** A\n\n## Description\n- **Не поле:** x\n');
+  assert.equal(core.writeField('# T\n\ntext\n', 'Проекти', 'A'), '# T\n\n- **Проекти:** A\n\ntext\n');
+  assert.equal(core.readField(core.writeField('text\n', 'Проекти', 'A'), 'Проекти'), 'A');
+});
+
+test('setTaskProjects: примітки вибраних лишаються, нові дописуються', () => {
+  const projects = [
+    { id: 'ultra', title: 'Ultra', aliases: ['ultra-delphi'] },
+    { id: 'tk', title: 'Task Kanban' },
+    { id: 'ultra-replicator', title: 'ultra-replicator' },
+  ];
+  const raw = 'Ultra (лише БД), ultra-replicator (аналіз)';
+  assert.equal(core.setTaskProjects(raw, ['ultra', 'tk'], projects), 'Ultra (лише БД), Task Kanban');
+  assert.equal(core.setTaskProjects('ultra-delphi (міграції)', ['ultra'], projects), 'ultra-delphi (міграції)');
+  assert.equal(core.setTaskProjects(raw, [], projects), '');
+  assert.equal(core.setTaskProjects('', ['Нове'], projects), 'Нове');
+});
+
+test('scanTasks: проекти і час зміни задачі', () => {
+  const root = tmp();
+  write(path.join(root, '1_new', '10', 'task.md'), '# Task 10\n\n- **Статус:** нове\n- **Проекти:** Ultra (БД), task-kanban\n');
+  write(path.join(root, '1_new', '11', 'task.md'), '# Task 11\n\n- **Статус:** нове\n- **Теги:** x\n');
+  const tasks = core.scanTasks(root, STAGES, { projectField: 'Теги' });
+  assert.deepEqual(tasks.map((t) => t.projects), [[], ['x']]);
+  const [t10] = core.scanTasks(root, STAGES);
+  assert.deepEqual(t10.projects, ['Ultra', 'task-kanban']);
+  assert.ok(t10.updated > 0);
+});
+
+// ---------- власні каталоги проектів ----------
+
+test('buildBoards: власний каталог і колонки, спільний каталог за рядком «Проекти», вкладений корінь', () => {
+  const ws = tmp();
+  const shared = path.join(ws, 'Tasks');
+  write(path.join(shared, '_template', 'task.md'), '# Task <номер>\n\n- **Статус:** нове\n- **Проекти:** —\n');
+  write(path.join(shared, '1_new', '1', 'task.md'), '# Task 1\n\n- **Статус:** нове\n- **Проекти:** Ultra\n');
+  write(path.join(shared, '3_work', '2', 'task.md'), '# Task 2\n\n- **Статус:** в роботі\n');
+  // корінь проекту B усередині спільного — не має потрапити в «без етапу»
+  write(path.join(shared, 'b', 'todo', '7', 'task.md'), '# Task 7\n\n- **Статус:** todo\n');
+  // проект C поза робочою областю
+  const cRoot = path.join(ws, '..', path.basename(ws) + '-c', 'Tasks');
+  write(path.join(cRoot, 'todo', '9', 'task.md'), '# Task 9\n\n- **Статус:** todo\n');
+
+  const own = [{ dir: 'todo', title: 'To do', status: 'todo' }, { dir: 'done', title: 'Done', status: 'done' }];
+  const m = core.buildBoards({
+    folder: ws,
+    tasksRoot: shared,
+    stages: STAGES,
+    transitions: [{ to: '*', actions: [] }],
+    projects: [
+      { id: 'ultra', title: 'Ultra' },
+      { id: 'b', title: 'B', tasksDir: 'Tasks/b', stages: own },
+      { id: 'c', title: 'C', tasksDir: path.relative(ws, cRoot) },
+    ],
+  });
+  assert.deepEqual(m.boards.map((b) => [b.id, b.kind]), [['ultra', 'project'], ['b', 'project'], ['c', 'project'], ['*', 'all'], ['', 'none']]);
+  assert.deepEqual(m.get('ultra').tasks.map((t) => t.id), ['1']);
+  assert.deepEqual(m.get('*').tasks.map((t) => t.id), ['1', '2']);
+  assert.deepEqual(m.get('').tasks.map((t) => t.id), ['2']);
+  const b = m.get('b');
+  assert.equal(b.ownRoot, true);
+  assert.equal(b.ownStages, true);
+  assert.deepEqual(b.stages, own);
+  assert.deepEqual(b.tasks.map((t) => [t.id, t.stage]), [['7', 'todo']]);
+  assert.deepEqual(b.transitions, []);
+  assert.equal(b.template, path.resolve(shared, '_template')); // свого шаблону немає — загальний
+  const c = m.get('c');
+  assert.equal(c.ownStages, false);
+  assert.deepEqual(c.stages, STAGES);
+  assert.deepEqual(c.tasks.map((t) => [t.id, t.stage]), [['9', '']]); // етапу todo в загальних колонках немає
+  assert.equal(m.get('ultra').transitions.length, 1);
+  fs.rmSync(path.dirname(cRoot), { recursive: true, force: true });
+});
+
+test('buildBoards: спільний каталог належить проекту — без «усіх» і «без проекту»', () => {
+  const ws = tmp();
+  write(path.join(ws, 'Tasks', '1_new', '1', 'task.md'), '# Task 1\n\n- **Статус:** нове\n- **Проекти:** будь-що\n');
+  const m = core.buildBoards({
+    folder: ws,
+    tasksRoot: path.join(ws, 'Tasks'),
+    stages: STAGES,
+    transitions: [{ to: '*', actions: [] }],
+    projects: [{ id: 'ultra', title: 'Ultra', tasksDir: 'Tasks' }, { id: 'dup', title: 'Dup', tasksDir: './Tasks' }],
+  });
+  assert.deepEqual(m.boards.map((b) => b.id), ['ultra']);
+  assert.equal(m.sharedOwned, true);
+  assert.deepEqual(m.get('ultra').tasks.map((t) => t.id), ['1']);
+  assert.equal(m.get('ultra').transitions.length, 1); // спільний каталог — загальні переходи
+});
+
+test('initProjectRoot і moveTaskToRoot: каталоги колонок, шаблон, перенесення між проектами', async () => {
+  const ws = tmp();
+  const sharedTpl = path.join(ws, 'Tasks', '_template');
+  write(path.join(sharedTpl, 'task.md'), '# Task <номер>\n\n- **Статус:** нове\n');
+  const root = path.join(ws, 'proj', 'Tasks');
+  const own = [{ dir: 'a', status: 'аа' }, { dir: 'b' }];
+  core.initProjectRoot(root, own, sharedTpl);
+  assert.ok(fs.existsSync(path.join(root, 'a')) && fs.existsSync(path.join(root, 'b')));
+  assert.ok(fs.existsSync(path.join(root, '_template', 'task.md')));
+
+  write(path.join(ws, 'Tasks', '1_new', '5', 'task.md'), '# Task 5\n\n- **Статус:** нове\n');
+  const [t] = core.scanTasks(path.join(ws, 'Tasks'), STAGES);
+  const res = await core.moveTaskToRoot(t, root, own[0]);
+  assert.equal(res.task.dir, path.join(root, 'a', '5'));
+  assert.equal(res.statusUpdated, true);
+  assert.equal(core.readStatus(fs.readFileSync(res.task.taskFile, 'utf8')), 'аа');
+  assert.ok(!fs.existsSync(t.dir));
+  await assert.rejects(() => core.moveTaskToRoot(t, root, own[0]));
+});
+
+// ---------- підзадачі ----------
+
+test('wiki-посилання і поле батьківської задачі', () => {
+  assert.equal(core.wikiTarget('Tasks/00003.md#Опис|задача'), '00003');
+  assert.deepEqual(core.parseWikiLinks('див. [[00003]] і [[00004|ще]], [[00003]]'), ['00003', '00004']);
+  assert.equal(core.readParent('# T\n\n- **Батьківська задача:** [[00003]] <!-- c -->\n'), '00003');
+  assert.equal(core.readParent('# T\n\n- **Батьківська задача:** 86170 (звіт)\n'), '86170');
+  assert.equal(core.readParent('# T\n\n- **Батьківська задача:** —\n'), null);
+  assert.equal(core.readParent('# T\n\n- **Parent:** [[7]]\n', 'Parent'), '7');
+});
+
+test('розділ «Підзадачі»: пункти, план, галочки', () => {
+  const t =
+    '# Task 3\n\n## Description\n\nОпис\n\n## Підзадачі\n\n- [x] [[3.1]] Модель\n- [ ] [[3.2]] — UI\n' +
+    '- [ ] Документація\n* просто пункт\n- <заглушка>\n\n## Результат\n\n- [ ] не підзадача\n';
+  const items = core.readSubtasks(t);
+  assert.deepEqual(
+    items.map((x) => [x.id, x.checked, x.text]),
+    [['3.1', true, 'Модель'], ['3.2', false, 'UI'], [null, false, 'Документація'], [null, null, 'просто пункт']],
+  );
+  const t2 = core.setSubtaskChecked(t, '3.2', true);
+  assert.ok(t2.includes('- [x] [[3.2]] — UI'));
+  assert.equal(core.setSubtaskChecked(t2, '3.2', true), t2);
+  assert.equal(core.setSubtaskChecked(t, '3.9', true), t);
+  const t3 = core.linkSubtaskItem(t, items[2].line, '3.3');
+  assert.ok(t3.includes('- [ ] [[3.3]] Документація'));
+  assert.ok(core.linkSubtaskItem(t, items[3].line, '3.4').includes('* [ ] [[3.4]] просто пункт'));
+  assert.equal(core.nextSubtaskId('3', ['3', '3.1', '3.2']), '3.3');
+});
+
+test('додавання пункту підзадачі: в наявний розділ, новий розділ після Description, CRLF', () => {
+  const a = '# T\n\n## Description\n\nОпис\n\n## Підзадачі\n\n- [ ] [[1.1]] A\n\n## Результат\n';
+  assert.equal(core.addSubtaskLink(a, '1.2', 'B'), '# T\n\n## Description\n\nОпис\n\n## Підзадачі\n\n- [ ] [[1.1]] A\n- [ ] [[1.2]] B\n\n## Результат\n');
+  assert.equal(core.addSubtaskLink(a, '1.1', 'A'), a, 'повтор не додається');
+  const b = '# T\r\n\r\n## Description\r\n\r\nОпис\r\n\r\n## Результат\r\n\r\n<...>\r\n';
+  assert.equal(
+    core.addSubtaskLink(b, '1.1', 'A'),
+    '# T\r\n\r\n## Description\r\n\r\nОпис\r\n\r\n## Підзадачі\r\n\r\n- [ ] [[1.1]] A\r\n\r\n## Результат\r\n\r\n<...>\r\n',
+  );
+  const c = '# T\n\n## Підзадачі\n\n<пункти>\n\n## Результат\n';
+  assert.equal(core.addSubtaskLink(c, '1.1', 'A'), '# T\n\n## Підзадачі\n\n- [ ] [[1.1]] A\n\n## Результат\n');
+  assert.equal(core.addSubtaskLink('# T\n', '1.1', ''), '# T\n\n## Підзадачі\n\n- [ ] [[1.1]]\n');
+});
+
+test('опис нової задачі: заглушка замінюється', () => {
+  assert.equal(core.writeDescription('# T\n\n## Description\n\n<опис>\n\n## Результат\n', 'Нове'), '# T\n\n## Description\n\nНове\n\n## Результат\n');
+  assert.equal(core.writeDescription('# T\n\n## Description\n\nБуло\n', 'Нове'), '# T\n\n## Description\n\nНове\n\nБуло\n');
+  assert.equal(core.writeDescription('# T\n', 'Нове'), '# T\n\n## Description\n\nНове\n');
+});
+
+test('звʼязки підзадач: поле і розділ, порядок, відсутні', () => {
+  const tasks = [
+    { id: '3', subtasks: [{ id: '3.2' }, { id: '3.1' }, { id: '9.9' }] },
+    { id: '3.1', parent: '3', subtasks: [] },
+    { id: '3.2', subtasks: [] }, // лише в розділі батьківської
+    { id: '3.3', parent: '3', subtasks: [] }, // лише полем
+    { id: '4', parent: '4', subtasks: [{ id: '3.1' }] }, // сам собі не батько; 3.1 уже має поле
+  ];
+  const info = core.linkSubtasks(tasks);
+  assert.deepEqual(info.get('3').children, ['3.2', '3.1', '3.3']);
+  assert.deepEqual(info.get('3').missing, ['9.9']);
+  assert.equal(info.get('3.2').parent, '3');
+  assert.equal(info.get('4').parent, null);
+  assert.deepEqual(info.get('4').children, []);
+});
+
+test('створення підзадачі з шаблону і з пункту плану', () => {
+  const root = tmp();
+  write(path.join(root, '_template', 'task.md'), '# Task <номер>\n\n- **Статус:** <!-- s -->\n- **Проекти:** x\n\n## Description\n\n<опис>\n\n## Результат\n');
+  write(
+    path.join(root, '3_work', '7', 'task.md'),
+    '# Task 7\n\n- **Статус:** в роботі\n- **Проекти:** Ultra (БД), task-kanban\n\n## Description\n\nВелика\n\n## Підзадачі\n\n- [ ] Частина А\n\n## Результат\n',
+  );
+  const [parent] = core.scanTasks(root, STAGES);
+  assert.equal(parent.subtasks[0].text, 'Частина А');
+  const a = core.createSubtask(root, '_template', '1_new', parent, '7.1', 'Частина А', { status: 'нове', planLine: parent.subtasks[0].line });
+  const b = core.createSubtask(root, '_template', '1_new', parent, '7.2', 'Частина Б', { status: 'нове' });
+  assert.equal(a.parent, '7');
+  assert.equal(b.title, 'Частина Б');
+  const ct = fs.readFileSync(a.taskFile, 'utf8');
+  assert.ok(ct.includes('- **Статус:** нове\n- **Проекти:** Ultra (БД), task-kanban\n- **Батьківська задача:** [[7]]\n'), ct);
+  assert.ok(ct.includes('## Description\n\nЧастина А\n'));
+  const pt = fs.readFileSync(parent.taskFile, 'utf8');
+  assert.ok(pt.includes('## Підзадачі\n\n- [ ] [[7.1]] Частина А\n- [ ] [[7.2]] Частина Б\n\n## Результат'), pt);
+  const all = core.scanTasks(root, STAGES);
+  assert.deepEqual(core.linkSubtasks(all).get('7').children, ['7.1', '7.2']);
+  assert.throws(() => core.createSubtask(root, '_template', '1_new', parent, '7.1', 'x'), /уже існує/);
+});

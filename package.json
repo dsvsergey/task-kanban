@@ -2,7 +2,7 @@
   "name": "task-kanban",
   "displayName": "Task Kanban",
   "description": "Kanban board for <Name>Add task folders: columns are Tasks/<stage>/ folders; dragging a card moves the task and commits its files.",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "publisher": "local",
   "license": "MIT",
   "private": true,
@@ -20,9 +20,20 @@
     "commands": [
       {
         "command": "taskKanban.open",
-        "title": "Відкрити дошку",
+        "title": "Дашборд проектів",
+        "category": "Task Kanban",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "taskKanban.openBoard",
+        "title": "Відкрити дошку проекту",
         "category": "Task Kanban",
         "icon": "$(project)"
+      },
+      {
+        "command": "taskKanban.addProject",
+        "title": "Новий проект",
+        "category": "Task Kanban"
       },
       {
         "command": "taskKanban.newTask",
@@ -87,6 +98,10 @@
               "collapsed": {
                 "type": "boolean",
                 "description": "Колонка згорнута за замовчуванням."
+              },
+              "done": {
+                "type": "boolean",
+                "description": "Задачі цієї колонки — завершені (дашборд не рахує їх активними). Якщо не позначено жодної — завершені згорнуті колонки і остання."
               }
             }
           },
@@ -109,6 +124,87 @@
           "type": "string",
           "default": "Трудомісткість",
           "markdownDescription": "Поле `task.md` з часом на задачу (рядок `- **<поле>:** 3:20`), що показується на картці позначкою ⏱. Порожній рядок — не показувати."
+        },
+        "taskKanban.projects": {
+          "scope": "resource",
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Проекти: у кожного своя канбан-дошка, усі — на дашборді. Задача належить проектам з рядка `- **Проекти:** …` у `task.md` (збіг з `id`, `title` або `aliases` без урахування регістру; примітки в дужках не враховуються). Назви з задач, яких тут немає, теж показуються на дашборді. Керується з дашборду (+ Проект, ✎, ✕).",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Незмінний ідентифікатор проекту."
+              },
+              "title": {
+                "type": "string",
+                "description": "Назва на дашборді; пишеться в «Проекти» нових задач."
+              },
+              "description": {
+                "type": "string"
+              },
+              "aliases": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Інші назви проекту в рядку «Проекти» задач."
+              },
+              "color": {
+                "type": "string",
+                "description": "blue, green, purple, orange, red, yellow або #rrggbb."
+              },
+              "tasksDir": {
+                "type": "string",
+                "description": "Власний каталог задач проекту відносно робочої області (може бути поза нею, напр. ../projAdd/Tasks): <каталог>/<етап>/<номер>/. Усі задачі в ньому — цього проекту. Без нього — спільний taskKanban.tasksDir і рядок «Проекти»."
+              },
+              "templateDir": {
+                "type": "string",
+                "description": "Шаблон нової задачі в каталозі проекту (за замовчуванням — taskKanban.templateDir; якщо його немає — загальний шаблон)."
+              },
+              "stages": {
+                "type": "array",
+                "description": "Колонки проекту з власним каталогом (як taskKanban.stages). Без них — загальні колонки. Керуються з дошки проекту.",
+                "items": {
+                  "type": "object",
+                  "required": ["dir"],
+                  "properties": {
+                    "dir": { "type": "string" },
+                    "title": { "type": "string" },
+                    "status": { "type": "string" },
+                    "collapsed": { "type": "boolean" },
+                    "done": { "type": "boolean" }
+                  }
+                }
+              },
+              "transitions": {
+                "type": "array",
+                "description": "Дії при перенесенні задач проекту (як taskKanban.transitions). Без них: проект у спільному каталозі — загальні переходи, у власному — жодних. Підстановка {tasksRoot} — каталог задач проекту."
+              }
+            }
+          }
+        },
+        "taskKanban.projectField": {
+          "scope": "resource",
+          "type": "string",
+          "default": "Проекти",
+          "markdownDescription": "Поле `task.md` зі списком проектів задачі (рядок `- **<поле>:** A, B (примітка)`)."
+        },
+        "taskKanban.parentField": {
+          "scope": "resource",
+          "type": "string",
+          "default": "Батьківська задача",
+          "markdownDescription": "Поле `task.md` підзадачі з посиланням на батьківську задачу: `- **<поле>:** [[00003]]` (wiki-посилання або просто номер)."
+        },
+        "taskKanban.subtasksHeading": {
+          "scope": "resource",
+          "type": "string",
+          "default": "Підзадачі",
+          "markdownDescription": "Розділ `task.md` батьківської задачі зі списком підзадач: `- [ ] [[00003.1]] опис` (галочка ставиться, коли підзадача в завершеній колонці). Пункти без `[[…]]` — план: кнопка ⊕ на картці створює з них підзадачі. Розділ `Subtasks` теж розпізнається."
         },
         "taskKanban.sessionOpenIn": {
           "scope": "resource",

@@ -62,7 +62,7 @@ Then run `Developer: Reload Window`.
 3. Add `.vscode/settings.json` with `taskKanban.transitions` — see [Transitions](#transitions); keep `repo`
    paths relative (`"../my-code"`).
 4. Make sure Git knows who you are: `git config --global user.name "…"` and `git config --global user.email "…"`.
-5. Click **Задачі** (Tasks) in the status bar.
+5. Click **Проекти** (Projects) in the status bar.
 
 ### Update and removal
 
@@ -94,9 +94,102 @@ writes the package through the link straight into the source folder.
 - Settings Sync does not carry extensions that are not from the Marketplace — install the `.vsix` on each machine.
 - Commits from the board need git `user.name` and `user.email` to be set.
 
+## Projects and the dashboard
+
+Every project has its own kanban board and its own folder structure; the **dashboard** lists all projects and
+is the entry point.
+
+- Projects are described in `taskKanban.projects`: `id` (permanent), `title`, `description`, `aliases` (other
+  names of the same project used in tasks), `color` (`blue`, `green`, `purple`, `orange`, `red`, `yellow` — theme
+  chart colors — or `#rrggbb`), and:
+  - `tasksDir` — the project's **own tasks folder**, relative to the workspace, may be outside it
+    (`../projAdd/Tasks`): `<tasksDir>/<stage>/<number>/`. Every task in it belongs to the project;
+  - `stages` — the project's **own columns** (like `taskKanban.stages`); without them — the shared columns;
+  - `templateDir` — new-task template inside the project folder (default `_template`; if missing — the shared
+    `Tasks/_template`);
+  - `transitions` — the project's own move actions (without them: a project in the shared folder uses the shared
+    ones, a project with its own folder has none; `repo` is relative to the workspace, `{tasksRoot}` is the
+    project's tasks folder).
+- A project **without** `tasksDir` shares the `taskKanban.tasksDir` folder and the shared columns with other such
+  projects; their tasks are split by the `- **Проекти:** …` (Projects) line of `task.md` (match by `id`, `title`
+  or alias, case-insensitive; notes in parentheses and `code` are ignored; a comma inside parentheses does not
+  split the list). Names found in tasks but not in the settings are shown too (dashed card; ＋ adds them). While
+  the shared folder belongs to no project, the dashboard also has «Усі задачі» (All tasks) and «Без проекту»
+  (No project) cards.
+- Another project's folder inside the shared one (`Tasks/<project>/`) is neither a stage nor a task.
+- `+ Проект` (+ Project) suggests `../<id>Add/Tasks` (when the workspace is a `<Name>Add` folder) or `Tasks/<id>`
+  and creates it: stage folders (a copy of the shared columns) and `_template` (a copy of the shared one).
+
+```jsonc
+"taskKanban.projects": [
+  // the shared Tasks/ folder belongs to Ultra, columns are the shared taskKanban.stages
+  { "id": "ultra", "title": "Ultra", "tasksDir": "Tasks", "aliases": ["ultra-delphi"], "color": "blue" },
+  // its own folder next door, its own columns and commits to its own repository
+  { "id": "task-kanban", "title": "task-kanban", "color": "purple",
+    "tasksDir": "../task-kanbanAdd/Tasks",
+    "stages": [ { "dir": "1_new", "title": "New", "status": "new" }, { "dir": "5_done", "title": "Done", "status": "done" } ],
+    "transitions": [ { "to": "*", "actions": [ { "type": "commit", "repo": "../task-kanbanAdd",
+      "paths": ["Tasks/*/{number}/**"] } ] } ] }
+]
+```
+
+**Dashboard** (`Проекти` button in the status bar, `Task Kanban: Дашборд проектів`):
+
+- totals: projects, active tasks, done tasks, total effort (sum of the `Трудомісткість` field);
+- a card per project: active / total / done tasks, effort, distribution of tasks across columns (hover a segment
+  for the number), the latest active tasks (click — `task.md`), last update time;
+- «Усі задачі» (All tasks) and «Без проекту» (No project — tasks without a Projects line) cards;
+- click a card or «Дошка →» (Board) — open the project's board in its own tab; `+ Задача` — new task in the project;
+- `+ Проект` (+ Project) — title → tasks folder → aliases → description → color → id; ✎ edit (changing the folder
+  does not move tasks), ✕ remove from the settings (tasks and folders stay); search by title, id, alias, description.
+
+"Done" tasks are those in columns marked `"done": true` in `taskKanban.stages`; if none is marked — collapsed
+columns and the last column.
+
+## Subtasks
+
+A large task can be split into subtasks. A subtask is an ordinary task: its own `<stage>/<number>/` folder,
+its own `task.md` and column, dragged on its own. The link is kept by wiki links `[[number]]` in both
+`task.md` files — visible and editable as plain text; in Obsidian `[[00003]]` leads to the task's note:
+
+```markdown
+# Task 00003                                # Task 00003.1
+- **Статус:** в роботі                      - **Статус:** нове
+                                            - **Батьківська задача:** [[00003]]
+## Підзадачі
+- [x] [[00003.1]] Data model                ## Description
+- [ ] [[00003.2]] Card on the board         Data model
+- [ ] Documentation         ← plan item
+```
+
+- ⊕ on a card — a new subtask (description → number, `<number>.1`, `.2`… suggested; a tracker number is fine
+  too), or, when the «Підзадачі» (Subtasks) section has items without links, **split by plan**: subtasks are
+  created from the checked items and `[[number]]` is written into them. A subtask is created from the template
+  in the first column of the same tasks folder; the Projects line is copied from the parent.
+- The parent card shows `☑ 1/3` (subtasks in done columns); a click expands the list of subtasks with their
+  columns, a click on a subtask shows its card. `☐ план 2` — plan items without tasks yet.
+- A subtask card shows `↑ 00003` (click — show the parent) and a stripe on the left.
+- When a subtask moves into a done column, its item in the parent gets `[x]`; moving back clears it.
+  Moving a parent with unfinished subtasks into a done column asks for confirmation.
+- `[[number]]` in markdown files of the tasks folder is a clickable link (Ctrl+click) to that task's `task.md`.
+- The link may also be written by hand: the `- **Батьківська задача:** [[00003]]` (parent task) field (or just
+  `00003`) in the subtask, or a `- [ ] [[00003.1]]` item in the parent's section — either one is enough. If they
+  disagree, the subtask's field wins. Field and section names: `taskKanban.parentField`,
+  `taskKanban.subtasksHeading` (a `Subtasks` section is always recognized).
+
 ## Usage
 
-- Board: the **Задачі** (Tasks) button in the status bar, or the command `Task Kanban: Відкрити дошку` (Open board).
+- Dashboard: the **Проекти** (Projects) button in the status bar, or `Task Kanban: Дашборд проектів`.
+  Project board: from the dashboard or `Task Kanban: Відкрити дошку проекту` (Open project board).
+  «← Проекти» on a board returns to the dashboard.
+- ⇄ on a card — move the task to another project: the task folder moves into that project's tasks folder (same
+  column if it exists there, otherwise you pick one); the status and the Projects line are updated.
+- 🏷 on a card (shared folder only) — choose the task's projects in the Projects line (several allowed; notes in
+  parentheses are preserved). Chips of the task's *other* projects open their boards.
+- Column controls (◀ ▶ ✎ ＋ ✕, `+ Колонка`) on a board of a project with its own folder change that project's
+  `stages` and folders; on other boards — the shared `taskKanban.stages`.
+- `+ Задача` (+ Task) creates the folder in the project's first column from its template and writes the project
+  into the Projects line; on the «All tasks» board the project is asked for.
 - Drag a card to another column to move the task.
 - Click a card to open `task.md`; ✎ opens `notes.md`; 📁 reveals the folder in the Explorer.
 - 💬 lists the Claude Code sessions in which the task was worked on (found by the task number in your prompts;
@@ -128,7 +221,11 @@ In `.vscode/settings.json` of the `<Name>Add` folder.
 | `taskKanban.templateDir` | `_template` | new task template inside `tasksDir` |
 | `taskKanban.effortField` | `Трудомісткість` | `task.md` field shown on the card as a ⏱ chip; empty — hide |
 | `taskKanban.sessionOpenIn` | `auto` | where 💬 opens a session: `auto` (extension, else terminal), `extension`, `terminal` |
-| `taskKanban.stages` | `1_new` … `5_done` | columns: `dir`, `title`, `status` (value written to `task.md`), `collapsed` |
+| `taskKanban.stages` | `1_new` … `5_done` | columns: `dir`, `title`, `status` (value written to `task.md`), `collapsed`, `done` |
+| `taskKanban.projects` | `[]` | projects: `id`, `title`, `description`, `aliases`, `color`, `tasksDir`, `stages`, `templateDir`, `transitions` — see [Projects](#projects-and-the-dashboard) |
+| `taskKanban.projectField` | `Проекти` | `task.md` field with the task's projects |
+| `taskKanban.parentField` | `Батьківська задача` | subtask's `task.md` field with the `[[number]]` link to its parent |
+| `taskKanban.subtasksHeading` | `Підзадачі` | `task.md` section with the list of subtasks and the split plan |
 | `taskKanban.commitMessage` | `{number}` | commit message: `{number}`, `{stage}`, `{status}`, `{title}` |
 | `taskKanban.transitions` | `[]` | actions on move |
 
@@ -164,8 +261,9 @@ In `.vscode/settings.json` of the `<Name>Add` folder.
 
 ```
 extension.js     — activation, panel, commands, moves and commits (vscode API)
-src/core.js      — logic without vscode: scanning, status in task.md, moving, git
+src/core.js      — logic without vscode: scanning, status in task.md, projects, moving, git
 media/board.*    — the board webview
+media/dashboard.* — the projects dashboard webview
 test/            — tests for src/core.js (node:test)
 ```
 

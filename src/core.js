@@ -65,6 +65,568 @@ function readField(text, label) {
   return v && !/^[—–-]+$/.test(v) ? v : null;
 }
 
+const META_LINE = /^[ \t]*[-*][ \t]*\*\*[^*\r\n]+:\*\*/;
+
+/**
+ * Записує «- **<label>:** value». Наявний рядок замінюється (разом з коментарем), інакше новий рядок
+ * додається після останнього рядка-поля в шапці (до першого «##»), а без полів — після заголовка «#».
+ */
+function writeField(text, label, value) {
+  const re = new RegExp(`^([ \\t]*[-*][ \\t]*\\*\\*${escapeRegExp(label)}:\\*\\*)([^\\r\\n]*)`, 'mi');
+  if (re.test(text)) return text.replace(re, (_m, head) => `${head} ${value}`);
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const line = `- **${label}:** ${value}`;
+  const lines = text.split(/\r?\n/);
+  let at = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#{2,6}\s/.test(lines[i])) break;
+    if (META_LINE.test(lines[i])) at = i;
+  }
+  if (at >= 0) {
+    lines.splice(at + 1, 0, line);
+    return lines.join(eol);
+  }
+  const h = lines.findIndex((l) => /^#\s/.test(l));
+  if (h < 0) return `${line}${eol}${text}`;
+  lines.splice(h + 1, 0, '', line);
+  return lines.join(eol);
+}
+
+// ---------- проекти ----------
+// Задача належить проектам з рядка «- **Проекти:** Ultra (лише БД), ultra-replicator».
+// Примітки в дужках і `код` не входять у назву; кома в дужках не ділить список.
+
+/** Частини поля «Проекти» верхнього рівня: [{name, text}], text — разом з приміткою в дужках. */
+function projectSegments(value) {
+  const out = [];
+  if (!value) return out;
+  let depth = 0;
+  let cur = '';
+  const push = () => {
+    const text = cur.trim();
+    const name = text.replace(/\([^)]*\)?/g, ' ').replace(/`/g, '').replace(/\s+/g, ' ').trim();
+    if (name && !/^[—–-]+$/.test(name)) out.push({ name, text });
+    cur = '';
+  };
+  for (const ch of String(value)) {
+    if (ch === '(') depth++;
+    else if (ch === ')' && depth > 0) depth--;
+    if ((ch === ',' || ch === ';') && depth === 0) push();
+    else cur += ch;
+  }
+  push();
+  return out;
+}
+
+function parseProjectList(value) {
+  return projectSegments(value).map((s) => s.name);
+}
+
+// кольори тем VS Code (--vscode-charts-<колір>), у фіксованому порядку
+const PROJECT_COLORS = ['blue', 'green', 'purple', 'orange', 'red', 'yellow'];
+
+function slugify(text) {
+  return String(text || '')
+    .toLowerCase()
+    .split('')
+    .map((ch) => (ch in TRANSLIT ? TRANSLIT[ch] : ch))
+    .join('')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+}
+
+/** Проекти з налаштувань в єдиному вигляді; записи без id і title та повтори id відкидаються. */
+function normalizeProjects(list) {
+  const out = [];
+  const seen = new Set();
+  for (const p of Array.isArray(list) ? list : []) {
+    if (!p || typeof p !== 'object') continue;
+    const id = String(p.id || slugify(p.title) || '').trim();
+    if (!id || seen.has(id.toLowerCase())) continue;
+    seen.add(id.toLowerCase());
+    const n = { id, title: String(p.title || id).trim() };
+    if (p.description && String(p.description).trim()) n.description = String(p.description).trim();
+    const aliases = (Array.isArray(p.aliases) ? p.aliases : []).map((a) => String(a).trim()).filter(Boolean);
+    if (aliases.length) n.aliases = aliases;
+    if (p.color) n.color = String(p.color).trim();
+    if (p.tasksDir && String(p.tasksDir).trim()) n.tasksDir = String(p.tasksDir).trim();
+    if (p.templateDir && String(p.templateDir).trim()) n.templateDir = String(p.templateDir).trim();
+    if (Array.isArray(p.stages) && p.stages.length) n.stages = p.stages.filter((s) => s && s.dir);
+    if (Array.isArray(p.transitions)) n.transitions = p.transitions;
+    out.push(n);
+  }
+  return out;
+}
+
+function projectKeys(p) {
+  return [p.id, p.title, ...(p.aliases || [])].map((k) => String(k).trim().toLowerCase()).filter(Boolean);
+}
+
+/**
+ * Усі проекти: з налаштувань (configured: true) і згадані в задачах, але не описані
+ * (configured: false, id = назва з task.md). Повертає { projects, projectsOf(task) → [id] }.
+ */
+function resolveProjects(configured, tasks) {
+  const projects = normalizeProjects(configured).map((p, i) => ({
+    ...p,
+    color: p.color || PROJECT_COLORS[i % PROJECT_COLORS.length],
+    configured: true,
+  }));
+  const byKey = new Map();
+  for (const p of projects) for (const k of projectKeys(p)) if (!byKey.has(k)) byKey.set(k, p.id);
+  const auto = [];
+  const ofTask = new Map();
+  for (const t of tasks) {
+    const ids = [];
+    for (const name of t.projects || []) {
+      const k = name.toLowerCase();
+      let id = byKey.get(k);
+      if (!id) {
+        id = name;
+        byKey.set(k, id);
+        auto.push({ id, title: name, configured: false });
+      }
+      if (!ids.includes(id)) ids.push(id);
+    }
+    ofTask.set(t, ids);
+  }
+  auto.sort((a, b) => a.title.localeCompare(b.title));
+  auto.forEach((p, i) => (p.color = PROJECT_COLORS[(projects.length + i) % PROJECT_COLORS.length]));
+  return { projects: [...projects, ...auto], projectsOf: (t) => ofTask.get(t) || [] };
+}
+
+/** Задачі проекту: '*' — усі, '' — без проекту, інакше id. */
+function filterByProject(tasks, projectsOf, id) {
+  if (id === '*') return tasks.slice();
+  if (id === '') return tasks.filter((t) => !projectsOf(t).length);
+  return tasks.filter((t) => projectsOf(t).includes(id));
+}
+
+/** Етапи «завершено»: позначені done: true; якщо таких немає — згорнуті за замовчуванням і останній. */
+function doneStages(stages) {
+  const marked = stages.filter((s) => s.done).map((s) => s.dir);
+  if (marked.length) return new Set(marked);
+  const set = new Set(stages.filter((s) => s.collapsed).map((s) => s.dir));
+  if (stages.length) set.add(stages[stages.length - 1].dir);
+  return set;
+}
+
+/** «3:20» → 200 хв, «2» → 120; не час — null. */
+function parseEffort(v) {
+  const m = /^\s*(\d+)(?::(\d{1,2}))?\s*$/.exec(String(v || ''));
+  if (!m) return null;
+  return Number(m[1]) * 60 + (m[2] ? Number(m[2]) : 0);
+}
+
+function formatMinutes(min) {
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
+}
+
+/** Зведення по задачах проекту для дашборду. */
+function projectStats(tasks, stages) {
+  const done = doneStages(stages);
+  const byStage = {};
+  for (const s of stages) byStage[s.dir] = 0;
+  const st = { total: tasks.length, active: 0, done: 0, byStage, noStage: 0, effortMinutes: 0, withEffort: 0, updated: 0 };
+  for (const t of tasks) {
+    if (Object.prototype.hasOwnProperty.call(byStage, t.stage)) byStage[t.stage]++;
+    else st.noStage++;
+    if (done.has(t.stage)) st.done++;
+    else st.active++;
+    const e = parseEffort(t.effort);
+    if (e !== null) {
+      st.effortMinutes += e;
+      st.withEffort++;
+    }
+    if (t.updated > st.updated) st.updated = t.updated;
+  }
+  return st;
+}
+
+// ---------- дошки проектів ----------
+// Проект з tasksDir має власний корінь задач (<корінь>/<етап>/<номер>/), свої колонки (stages, інакше —
+// загальні), шаблон (<корінь>/_template, інакше — загальний) і переходи. Усі задачі цього кореня — його.
+// Проекти без tasksDir ділять загальний корінь (taskKanban.tasksDir) і загальні колонки, а задачі між ними
+// розподіляє рядок «Проекти» у task.md.
+
+function samePath(a, b) {
+  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+}
+
+/**
+ * Контексти дошок. cfg: { folder, tasksRoot, stages, transitions, templateDir, projects, scan }
+ * (scan — опції scanTasks). Повертає { boards: [ctx], get(id), sharedOwned }, де ctx:
+ * { id, kind: 'project'|'all'|'none', project, root, stages, ownRoot, ownStages, template, transitions, tasks, rootTasks, projectsOf }
+ * (rootTasks — усі задачі кореня: для звʼязків підзадач між проектами спільного каталогу).
+ * 'all' (id '*') і 'none' (id '') — лише коли загальний корінь не належить жодному проекту.
+ */
+function buildBoards(cfgIn) {
+  const cfg = { ...cfgIn, stages: cfgIn.stages || [] };
+  const projects = normalizeProjects(cfg.projects);
+  const tplName = cfg.templateDir || '_template';
+  const sharedTemplate = path.resolve(cfg.tasksRoot, tplName);
+  const owned = [];
+  const seenRoots = [];
+  for (const p of projects) {
+    if (!p.tasksDir) continue;
+    const root = path.resolve(cfg.folder, p.tasksDir);
+    if (seenRoots.some((r) => samePath(r, root))) continue; // другий проект з тим самим коренем — як без tasksDir
+    seenRoots.push(root);
+    owned.push({ p, root });
+  }
+  const ownedIds = new Set(owned.map((o) => o.p.id));
+  const sharedOwner = owned.find((o) => samePath(o.root, cfg.tasksRoot));
+  const scan = (root, stages) =>
+    scanTasks(root, stages, { ...(cfg.scan || {}), exclude: seenRoots.filter((r) => !samePath(r, root)) });
+
+  const shared = sharedOwner ? [] : scan(cfg.tasksRoot, cfg.stages);
+  // кольори — за порядком у налаштуваннях; поле «Проекти» зіставляється лише з проектами спільного кореня
+  const resolved = resolveProjects(projects, shared);
+  const colorOf = new Map(resolved.projects.map((p) => [p.id, p.color]));
+  const sharedOf = (t) => resolved.projectsOf(t).filter((id) => !ownedIds.has(id));
+
+  const boards = [];
+  for (const p of resolved.projects) {
+    const o = owned.find((x) => x.p.id === p.id);
+    if (o) {
+      const stages = p.stages && p.stages.length ? p.stages : cfg.stages;
+      const own = path.resolve(o.root, p.templateDir || tplName);
+      const tasks = scan(o.root, stages);
+      boards.push({
+        id: p.id,
+        kind: 'project',
+        project: { ...p, color: colorOf.get(p.id) },
+        root: o.root,
+        stages,
+        ownRoot: true,
+        ownStages: !!(p.stages && p.stages.length),
+        template: fs.existsSync(own) ? own : sharedTemplate,
+        transitions: p.transitions || (samePath(o.root, cfg.tasksRoot) ? cfg.transitions || [] : []),
+        tasks,
+        rootTasks: tasks,
+        projectsOf: () => [],
+      });
+    } else if (!sharedOwner) {
+      boards.push({
+        id: p.id,
+        kind: 'project',
+        project: p,
+        root: cfg.tasksRoot,
+        stages: cfg.stages,
+        ownRoot: false,
+        ownStages: false,
+        template: sharedTemplate,
+        transitions: p.transitions || cfg.transitions || [],
+        tasks: filterByProject(shared, sharedOf, p.id),
+        rootTasks: shared,
+        projectsOf: sharedOf,
+      });
+    }
+  }
+  if (!sharedOwner) {
+    const base = { root: cfg.tasksRoot, stages: cfg.stages, ownRoot: false, ownStages: false, template: sharedTemplate, transitions: cfg.transitions || [], projectsOf: sharedOf, rootTasks: shared };
+    boards.push({ ...base, id: '*', kind: 'all', project: null, tasks: shared });
+    boards.push({ ...base, id: '', kind: 'none', project: null, tasks: filterByProject(shared, sharedOf, '') });
+  }
+  const byId = new Map(boards.map((b) => [b.id, b]));
+  return { boards, get: (id) => byId.get(id) || null, sharedOwned: !!sharedOwner };
+}
+
+/** Каталоги етапів і шаблон у корені проекту (шаблон копіюється з загального, якщо свого немає). */
+function initProjectRoot(root, stages, sharedTemplate, templateName = '_template') {
+  fs.mkdirSync(root, { recursive: true });
+  for (const s of stages) fs.mkdirSync(path.join(root, s.dir), { recursive: true });
+  const tpl = path.join(root, templateName);
+  if (!fs.existsSync(tpl) && sharedTemplate && fs.existsSync(sharedTemplate) && !samePath(tpl, sharedTemplate)) {
+    fs.cpSync(sharedTemplate, tpl, { recursive: true });
+  }
+}
+
+/**
+ * Переносить каталог задачі в інший корінь (інший проект) у етап stage; статус — зі stage.
+ * Між дисками (EXDEV) — копіювання і видалення.
+ */
+async function moveTaskToRoot(task, dstRoot, stage, retry) {
+  const dst = path.join(dstRoot, stage.dir, task.id);
+  if (fs.existsSync(dst)) throw new Error(`Каталог ${dst} уже існує`);
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  try {
+    await renameWithRetry(task.dir, dst, retry);
+  } catch (e) {
+    if (e.code !== 'EXDEV') throw e;
+    fs.cpSync(task.dir, dst, { recursive: true });
+    fs.rmSync(task.dir, { recursive: true, force: true });
+  }
+  let statusUpdated = false;
+  const moved = readTask(dst, task.id, stage.dir);
+  if (stage.status && moved.taskFile) {
+    const text = fs.readFileSync(moved.taskFile, 'utf8');
+    const next = writeStatus(text, stage.status);
+    if (next !== null && next !== text) {
+      fs.writeFileSync(moved.taskFile, next, 'utf8');
+      statusUpdated = true;
+    }
+  }
+  return { task: readTask(dst, task.id, stage.dir), statusUpdated };
+}
+
+/** Нове значення поля «Проекти»: лишає частини (з примітками) вибраних проектів, дописує нові назви. */
+function setTaskProjects(value, picked, projects) {
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const keysOf = (id) => (byId.has(id) ? projectKeys(byId.get(id)) : [String(id).toLowerCase()]);
+  const keep = [];
+  const covered = new Set();
+  for (const seg of projectSegments(value)) {
+    const id = picked.find((x) => keysOf(x).includes(seg.name.toLowerCase()));
+    if (id !== undefined && !covered.has(id)) {
+      keep.push(seg.text);
+      covered.add(id);
+    }
+  }
+  for (const id of picked) if (!covered.has(id)) keep.push(byId.has(id) ? byId.get(id).title : id);
+  return keep.join(', ');
+}
+
+// ---------- підзадачі ----------
+// Підзадача — звичайна задача (свій каталог і колонка). Звʼязок — wiki-посилання на номер задачі:
+//   у підзадачі   «- **Батьківська задача:** [[00003]]»;
+//   у батьківській розділ «## Підзадачі» з пунктами «- [ ] [[00003.1]] опис» (галочка — підзадача завершена).
+// Пункт розділу без посилання — план: з нього можна створити підзадачу («розбити задачу»).
+
+const DEFAULT_PARENT_FIELD = 'Батьківська задача';
+const DEFAULT_SUBTASKS_HEADING = 'Підзадачі';
+const WIKI_LINK = /\[\[([^\]\r\n]+)\]\]/g;
+const LIST_ITEM = /^([ \t]*[-*+][ \t]+)(?:\[([ xX])\][ \t]+)?(.*)$/;
+
+/** «[[Tasks/00003.md#Опис|задача]]» → «00003»: ціль без шляху, розширення, якоря і підпису. */
+function wikiTarget(s) {
+  let t = String(s).split('|')[0].split('#')[0].trim();
+  t = t.split(/[\\/]/).pop().replace(/\.md$/i, '').trim();
+  return t;
+}
+
+function parseWikiLinks(s) {
+  const out = [];
+  for (const m of String(s || '').matchAll(WIKI_LINK)) {
+    const t = wikiTarget(m[1]);
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/** Номер батьківської задачі з поля: «[[00003]]» або просто «00003»; немає — null. */
+function readParent(text, field = DEFAULT_PARENT_FIELD) {
+  const v = readField(text, field);
+  if (!v) return null;
+  const links = parseWikiLinks(v);
+  if (links.length) return links[0];
+  const m = /^[\w.-]+/.exec(v.trim());
+  return m ? m[0] : null;
+}
+
+/** Межі розділу «## <heading>»: { head, start, end } (індекси рядків) або null. */
+function subtaskSection(lines, heading = DEFAULT_SUBTASKS_HEADING) {
+  const names = [heading, 'Subtasks'].map((h) => String(h).trim().toLowerCase());
+  const head = lines.findIndex((l) => {
+    const m = /^(#{1,6})[ \t]+(.+?)[ \t#]*$/.exec(l);
+    return m && names.includes(m[2].trim().toLowerCase());
+  });
+  if (head < 0) return null;
+  let end = head + 1;
+  while (end < lines.length && !/^#{1,6}\s/.test(lines[end])) end++;
+  return { head, start: head + 1, end };
+}
+
+/**
+ * Пункти розділу підзадач: [{ line, id, checked, text }]. id — перше wiki-посилання (null — пункт плану),
+ * checked — стан галочки (null — без галочки), text — текст без посилань.
+ */
+function readSubtasks(text, heading = DEFAULT_SUBTASKS_HEADING) {
+  const lines = String(text).split(/\r?\n/);
+  const sec = subtaskSection(lines, heading);
+  if (!sec) return [];
+  const out = [];
+  for (let i = sec.start; i < sec.end; i++) {
+    const m = LIST_ITEM.exec(lines[i]);
+    if (!m) continue;
+    const body = stripComments(m[3]);
+    if (!body || /^<[^>]*>$/.test(body)) continue; // порожній пункт або заглушка шаблону
+    const ids = parseWikiLinks(body);
+    const rest = body
+      .replace(WIKI_LINK, ' ')
+      .replace(/^[\s—–:-]+/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    out.push({ line: i, id: ids[0] || null, checked: m[2] === undefined ? null : m[2] !== ' ', text: rest });
+  }
+  return out;
+}
+
+/** Номер нової підзадачі: <батьківська>.<n>, перший вільний. */
+function nextSubtaskId(parentId, takenIds) {
+  const taken = new Set([...takenIds].map((x) => String(x).toLowerCase()));
+  let n = 1;
+  while (taken.has(`${parentId}.${n}`.toLowerCase())) n++;
+  return `${parentId}.${n}`;
+}
+
+function eolOf(text) {
+  return text.includes('\r\n') ? '\r\n' : '\n';
+}
+
+/** Додає пункт «- [ ] [[id]] title» у розділ підзадач; розділу немає — створює його після Description. */
+function addSubtaskLink(text, id, title, heading = DEFAULT_SUBTASKS_HEADING) {
+  const eol = eolOf(text);
+  const lines = text.split(/\r?\n/);
+  const item = `- [ ] [[${id}]]${title ? ` ${String(title).replace(/\s+/g, ' ').trim()}` : ''}`;
+  const sec = subtaskSection(lines, heading);
+  if (sec) {
+    if (readSubtasks(text, heading).some((x) => x.id && x.id.toLowerCase() === String(id).toLowerCase())) return text;
+    // після останнього пункту списку (заглушку шаблону «<...>» замінюємо)
+    let at = -1;
+    for (let i = sec.start; i < sec.end; i++) {
+      const m = LIST_ITEM.exec(lines[i]);
+      if (m) at = i;
+      else if (/^\s*<[^>]*>\s*$/.test(lines[i])) {
+        lines[i] = item;
+        return lines.join(eol);
+      }
+    }
+    if (at >= 0) {
+      if (!stripComments(LIST_ITEM.exec(lines[at])[3])) lines[at] = item; // порожній «- »
+      else lines.splice(at + 1, 0, item);
+    } else {
+      let i = sec.start;
+      while (i < sec.end && !lines[i].trim()) i++;
+      lines.splice(sec.start, i - sec.start, '', item, ...(i < sec.end ? [''] : []));
+    }
+    return lines.join(eol);
+  }
+  const block = [`## ${heading}`, '', item, ''];
+  const desc = lines.findIndex((l) => DESCRIPTION_HEADING.test(l.trim()));
+  let at = -1;
+  if (desc >= 0) for (let i = desc + 1; i < lines.length && at < 0; i++) if (/^#{1,6}\s/.test(lines[i])) at = i;
+  if (at < 0) {
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    lines.push('', ...block);
+  } else lines.splice(at, 0, ...block);
+  return lines.join(eol);
+}
+
+/** Пункт плану (рядок line) → «- [ ] [[id]] текст». */
+function linkSubtaskItem(text, line, id) {
+  const eol = eolOf(text);
+  const lines = text.split(/\r?\n/);
+  const m = LIST_ITEM.exec(lines[line] || '');
+  if (!m) throw new Error(`Рядок ${line + 1} — не пункт списку`);
+  const box = m[2] === undefined ? '[ ] ' : `[${m[2]}] `;
+  lines[line] = `${m[1]}${box}[[${id}]] ${m[3].trim()}`;
+  return lines.join(eol);
+}
+
+/** Галочка пункту підзадачі id у розділі; пункту з галочкою немає — текст без змін. */
+function setSubtaskChecked(text, id, done, heading = DEFAULT_SUBTASKS_HEADING) {
+  const item = readSubtasks(text, heading).find((x) => x.id && x.id.toLowerCase() === String(id).toLowerCase());
+  if (!item || item.checked === null || item.checked === !!done) return text;
+  const eol = eolOf(text);
+  const lines = text.split(/\r?\n/);
+  lines[item.line] = lines[item.line].replace(/\[[ xX]\]/, done ? '[x]' : '[ ]');
+  return lines.join(eol);
+}
+
+/** Текст розділу Description: заглушку шаблону «<...>» замінює, інакше дописує першим рядком. */
+function writeDescription(text, value) {
+  const eol = eolOf(text);
+  const lines = text.split(/\r?\n/);
+  const v = String(value || '').trim();
+  if (!v) return text;
+  const h = lines.findIndex((l) => DESCRIPTION_HEADING.test(l.trim()));
+  if (h < 0) {
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    lines.push('', '## Description', '', v, '');
+    return lines.join(eol);
+  }
+  let end = h + 1;
+  while (end < lines.length && !/^#{1,6}\s/.test(lines[end])) end++;
+  const body = lines.slice(h + 1, end).filter((l) => l.trim());
+  if (body.every((l) => /^\s*<[^>]*>\s*$/.test(l))) {
+    lines.splice(h + 1, end - h - 1, '', v, '');
+  } else {
+    let i = h + 1;
+    while (i < end && !lines[i].trim()) i++;
+    lines.splice(i, 0, v, '');
+  }
+  return lines.join(eol);
+}
+
+/**
+ * Звʼязки задач одного каталогу. Батьківська задача підзадачі — з її поля «Батьківська задача», а якщо
+ * поля немає — перша задача, що згадує її в розділі «Підзадачі». Повертає Map(id → { parent, children, missing }):
+ * parent — номер (може не існувати), children — номери підзадач (порядок розділу, далі за номером),
+ * missing — посилання розділу на задачі, яких немає в каталозі.
+ */
+function linkSubtasks(tasks) {
+  const key = (id) => String(id).toLowerCase();
+  const byId = new Map(tasks.map((t) => [key(t.id), t]));
+  const parentOf = new Map();
+  for (const t of tasks) if (t.parent && key(t.parent) !== key(t.id)) parentOf.set(key(t.id), t.parent);
+  for (const t of tasks) {
+    for (const it of t.subtasks || []) {
+      if (!it.id || key(it.id) === key(t.id) || !byId.has(key(it.id))) continue;
+      if (!parentOf.has(key(it.id))) parentOf.set(key(it.id), t.id);
+    }
+  }
+  const info = new Map(tasks.map((t) => [t.id, { parent: parentOf.get(key(t.id)) || null, children: [], missing: [] }]));
+  for (const t of tasks) {
+    const own = info.get(t.id);
+    const kids = tasks.filter((c) => {
+      const p = parentOf.get(key(c.id));
+      return p && key(p) === key(t.id);
+    });
+    const order = (t.subtasks || []).filter((x) => x.id).map((x) => key(x.id));
+    kids.sort((a, b) => {
+      const ia = order.indexOf(key(a.id));
+      const ib = order.indexOf(key(b.id));
+      if (ia >= 0 || ib >= 0) return (ia < 0 ? Infinity : ia) - (ib < 0 ? Infinity : ib);
+      return compareIds(a.id, b.id);
+    });
+    own.children = kids.map((c) => c.id);
+    for (const it of t.subtasks || []) if (it.id && !byId.has(key(it.id)) && !own.missing.includes(it.id)) own.missing.push(it.id);
+  }
+  return info;
+}
+
+/**
+ * Створює підзадачу parent у колонці stageDir кореня root: копія шаблону, поле батьківської задачі,
+ * опис, проекти батьківської; у батьківській — пункт у розділі підзадач (або посилання в пункт плану planLine).
+ * opts: { parentField, subtasksHeading, projectField, effortField, status, planLine }.
+ */
+function createSubtask(root, templateDir, stageDir, parent, id, title, opts = {}) {
+  if (!parent.taskFile) throw new Error(`У задачі ${parent.id} немає task.md`);
+  const parentField = opts.parentField || DEFAULT_PARENT_FIELD;
+  const heading = opts.subtasksHeading || DEFAULT_SUBTASKS_HEADING;
+  const projectField = opts.projectField === undefined ? DEFAULT_PROJECT_FIELD : opts.projectField;
+  const parentText = fs.readFileSync(parent.taskFile, 'utf8');
+  const child = createTask(root, templateDir, stageDir, id);
+  if (child.taskFile) {
+    let text = fs.readFileSync(child.taskFile, 'utf8');
+    const orig = text;
+    if (opts.status) text = writeStatus(text, opts.status) ?? text;
+    const projects = projectField && readField(parentText, projectField);
+    if (projects) text = writeField(text, projectField, projects);
+    text = writeField(text, parentField, `[[${parent.id}]]`);
+    if (title) text = writeDescription(text, title);
+    if (text !== orig) fs.writeFileSync(child.taskFile, text, 'utf8');
+  }
+  const next =
+    opts.planLine !== undefined && opts.planLine !== null
+      ? linkSubtaskItem(parentText, opts.planLine, id)
+      : addSubtaskLink(parentText, id, title, heading);
+  if (next !== parentText) fs.writeFileSync(parent.taskFile, next, 'utf8');
+  return readTask(child.dir, id, stageDir, opts);
+}
+
 function readTitle(text) {
   const lines = text.split(/\r?\n/);
   const isMeta = (t) => /^[-*]\s*\*\*[^*]+:\*\*/.test(t);
@@ -99,6 +661,15 @@ function listDirs(dir) {
 }
 
 const DEFAULT_EFFORT_FIELD = 'Трудомісткість';
+const DEFAULT_PROJECT_FIELD = 'Проекти';
+
+function mtime(file) {
+  try {
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
 
 function readTask(dir, id, stage, opts = {}) {
   const taskFile = findTaskFile(dir);
@@ -130,6 +701,10 @@ function readTask(dir, id, stage, opts = {}) {
     title: readTitle(text),
     status: readStatus(text),
     effort: readField(text, opts.effortField === undefined ? DEFAULT_EFFORT_FIELD : opts.effortField),
+    projects: parseProjectList(readField(text, opts.projectField === undefined ? DEFAULT_PROJECT_FIELD : opts.projectField)),
+    parent: readParent(text, opts.parentField || DEFAULT_PARENT_FIELD),
+    subtasks: readSubtasks(text, opts.subtasksHeading || DEFAULT_SUBTASKS_HEADING),
+    updated: Math.max(mtime(dir), taskFile ? mtime(taskFile) : 0, mtime(path.join(dir, 'notes.md'))),
     hasSql: files.some((f) => f.toLowerCase() === 'path.sql'),
     zipVersion,
   };
@@ -148,15 +723,19 @@ function compareIds(a, b) {
  */
 function scanTasks(tasksRoot, stages, opts = {}) {
   const stageDirs = new Set(stages.map((s) => s.dir));
+  // корені інших проектів усередині цього (напр. Tasks/<проект>/) — не задачі і не етапи
+  const excluded = (dir) => (opts.exclude || []).some((x) => samePath(x, dir));
   const tasks = [];
   for (const s of stages) {
     for (const id of listDirs(path.join(tasksRoot, s.dir))) {
+      if (excluded(path.join(tasksRoot, s.dir, id))) continue;
       tasks.push(readTask(path.join(tasksRoot, s.dir, id), id, s.dir, opts));
     }
   }
   for (const id of listDirs(tasksRoot)) {
     if (stageDirs.has(id)) continue;
     const dir = path.join(tasksRoot, id);
+    if (excluded(dir)) continue;
     if (findTaskFile(dir)) {
       tasks.push(readTask(dir, id, '', opts));
       continue;
@@ -233,7 +812,7 @@ function createTask(tasksRoot, templateDir, stageDir, id) {
   if (!/^[\w.-]+$/.test(id)) throw new Error(`Недопустимий номер задачі: ${id}`);
   const dst = path.join(tasksRoot, stageDir, id);
   if (fs.existsSync(dst)) throw new Error(`Каталог ${dst} уже існує`);
-  const src = path.join(tasksRoot, templateDir);
+  const src = path.resolve(tasksRoot, templateDir); // templateDir може бути абсолютним (загальний шаблон)
   fs.mkdirSync(dst, { recursive: true });
   if (fs.existsSync(src)) {
     fs.cpSync(src, dst, { recursive: true });
@@ -627,6 +1206,36 @@ async function commitFiles(repo, files, message) {
 
 module.exports = {
   findTaskFile,
+  writeField,
+  wikiTarget,
+  parseWikiLinks,
+  readParent,
+  readSubtasks,
+  nextSubtaskId,
+  addSubtaskLink,
+  linkSubtaskItem,
+  setSubtaskChecked,
+  writeDescription,
+  linkSubtasks,
+  createSubtask,
+  DEFAULT_PARENT_FIELD,
+  DEFAULT_SUBTASKS_HEADING,
+  projectSegments,
+  parseProjectList,
+  normalizeProjects,
+  resolveProjects,
+  filterByProject,
+  doneStages,
+  parseEffort,
+  formatMinutes,
+  projectStats,
+  setTaskProjects,
+  buildBoards,
+  initProjectRoot,
+  moveTaskToRoot,
+  samePath,
+  slugify,
+  PROJECT_COLORS,
   readStatus,
   readField,
   claudeProjectDir,

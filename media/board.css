@@ -208,7 +208,128 @@ button.secondary:hover {
   color: var(--vscode-statusBarItem-prominentForeground, var(--vscode-button-foreground));
   font-weight: 600;
 }
+.badge.proj {
+  cursor: pointer;
+  background: color-mix(in srgb, var(--c) 22%, transparent);
+  color: var(--vscode-foreground);
+  border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
+}
+.badge.proj:hover {
+  background: color-mix(in srgb, var(--c) 40%, transparent);
+}
+
+.project {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 420px;
+  overflow: hidden;
+}
+.project-dir {
+  font-weight: normal;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--c);
+}
+
 .badge.warn {
   background: var(--vscode-inputValidation-warningBackground, #8a6d00);
   color: var(--vscode-foreground);
+}
+
+/* ---------- підзадачі ---------- */
+.card.is-subtask {
+  border-left: 3px solid var(--vscode-textLink-foreground);
+}
+.card.flash {
+  animation: flash 1.2s ease-out;
+}
+@keyframes flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.badge.link {
+  cursor: pointer;
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 50%, transparent);
+  font-family: var(--vscode-editor-font-family);
+}
+.badge.link:hover {
+  background: color-mix(in srgb, var(--vscode-textLink-foreground) 15%, transparent);
+}
+.badge.link.all-done {
+  color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+  border-color: color-mix(in srgb, var(--vscode-testing-iconPassed, var(--vscode-charts-green)) 50%, transparent);
+}
+.badge.link.warn {
+  cursor: default;
+}
+.badge.plan {
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  border: 1px dashed var(--vscode-panel-border);
+}
+.subtasks {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 4px 0 0;
+  border-top: 1px solid var(--vscode-panel-border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.subtask {
+  display: grid;
+  grid-template-columns: 1em auto 1fr auto;
+  gap: 6px;
+  align-items: baseline;
+  padding: 1px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+.subtask:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.subtask .sub-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+}
+.subtask .sub-stage {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+.subtask.done .sub-mark {
+  color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+}
+.subtask.done .sub-title {
+  text-decoration: line-through;
+}
+.subtask.missing {
+  cursor: default;
+  color: var(--vscode-errorForeground);
 }

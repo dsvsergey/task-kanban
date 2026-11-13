@@ -5,15 +5,36 @@
   const saved = vscode.getState() || {};
   let filter = saved.filter || '';
   let collapsed = saved.collapsed || null; // {dir: bool}
-  let state = { stages: [], tasks: [], busy: false };
+  let expanded = saved.expanded || {}; // {id: true} — розгорнутий список підзадач на картці
+  let state = { stages: [], tasks: [], busy: false, project: { id: '*', title: '' } };
 
   const board = document.getElementById('board');
+  const projectEl = document.getElementById('project');
+
+  // колір проекту: назва кольору теми VS Code або CSS-колір
+  function colorOf(c) {
+    if (!c) return 'var(--vscode-descriptionForeground)';
+    return /^(#|rgb|hsl)/i.test(c) ? c : `var(--vscode-charts-${c}, var(--vscode-focusBorder))`;
+  }
+
+  function renderProject() {
+    const p = state.project || {};
+    projectEl.textContent = '';
+    const dot = el('span', 'dot');
+    dot.style.setProperty('--c', colorOf(p.virtual ? '' : p.color));
+    projectEl.append(dot, el('span', 'project-title', p.title || ''));
+    projectEl.title = p.missing
+      ? 'Проекту немає ні в налаштуваннях, ні в задачах'
+      : [p.description, p.tasksDir && `Каталог задач: ${p.tasksDir}${p.ownStages ? ' · свої колонки' : ''}`].filter(Boolean).join('\n');
+    if (p.tasksDir) projectEl.appendChild(el('span', 'project-dir', p.tasksDir));
+    if (p.missing) projectEl.appendChild(el('span', 'badge warn', 'немає'));
+  }
   const filterInput = document.getElementById('filter');
   const busyEl = document.getElementById('busy');
   filterInput.value = filter;
 
   function save() {
-    vscode.setState({ filter, collapsed });
+    vscode.setState({ filter, collapsed, expanded });
   }
 
   function el(tag, cls, text) {
@@ -26,7 +47,49 @@
   function matches(t) {
     if (!filter) return true;
     const f = filter.toLowerCase();
-    return t.id.toLowerCase().includes(f) || (t.title || '').toLowerCase().includes(f);
+    // номер батьківської — щоб фільтр за задачею показував і її підзадачі
+    return t.id.toLowerCase().includes(f) || (t.title || '').toLowerCase().includes(f) || (!!t.parent && t.parent.id.toLowerCase() === f);
+  }
+
+  function stageTitle(dir) {
+    const s = state.stages.find((x) => x.dir === dir);
+    return s ? s.title || s.dir : dir || 'Без етапу';
+  }
+
+  /** Показати картку задачі на дошці (з підсвіткою); якщо її не видно — відкрити task.md. */
+  function focusTask(id) {
+    const c = board.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
+    if (!c) {
+      vscode.postMessage({ type: 'open', id, file: 'task' });
+      return;
+    }
+    c.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+    c.classList.remove('flash');
+    void c.offsetWidth;
+    c.classList.add('flash');
+  }
+
+  function subtaskList(t) {
+    const list = el('ul', 'subtasks');
+    for (const s of t.children) {
+      const li = el('li', 'subtask' + (s.done ? ' done' : '') + (s.missing ? ' missing' : ''));
+      li.appendChild(el('span', 'sub-mark', s.missing ? '?' : s.done ? '✓' : '○'));
+      li.appendChild(el('span', 'card-id', s.id));
+      li.appendChild(el('span', 'sub-title', s.missing ? 'немає задачі' : s.title || ''));
+      if (!s.missing) li.appendChild(el('span', 'sub-stage', stageTitle(s.stage)));
+      li.title = s.missing ? '' : `${s.id} — ${stageTitle(s.stage)}${s.onBoard ? '' : ' (інша дошка)'}. Клік — показати`;
+      li.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!s.missing) focusTask(s.id);
+      });
+      list.appendChild(li);
+    }
+    for (const id of t.missingChildren || []) {
+      const li = el('li', 'subtask missing');
+      li.append(el('span', 'sub-mark', '?'), el('span', 'card-id', id), el('span', 'sub-title', 'задачі немає в каталозі'));
+      list.appendChild(li);
+    }
+    return list;
   }
 
   function columns() {
@@ -68,13 +131,83 @@
       e.stopPropagation();
       vscode.postMessage({ type: 'sessions', id: t.id });
     });
-    tools.append(chat, notes, reveal);
+    // 🏷 — рядок «Проекти» (лише у спільному каталозі); ⇄ — перенести каталог задачі в інший проект
+    if (!state.project.ownRoot) {
+      const tag = el('button', 'icon', '🏷');
+      tag.title = 'Проекти задачі (рядок «Проекти» в task.md)';
+      tag.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ type: 'setProjects', id: t.id });
+      });
+      tools.appendChild(tag);
+    }
+    if (state.moveTargets) {
+      const mv = el('button', 'icon', '⇄');
+      mv.title = 'Перенести в інший проект (каталог задачі переїде)';
+      mv.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ type: 'moveToProject', id: t.id });
+      });
+      tools.appendChild(mv);
+    }
+    const split = el('button', 'icon', '⊕');
+    split.title = t.plan ? `Розбити на підзадачі: план — ${t.plan} пункт.` : 'Додати підзадачу';
+    split.disabled = state.busy;
+    split.addEventListener('click', (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ type: 'addSubtask', id: t.id });
+    });
+    tools.append(split, chat, notes, reveal);
     head.appendChild(tools);
     c.appendChild(head);
 
     if (t.title) c.appendChild(el('div', 'card-title', t.title));
 
     const badges = el('div', 'badges');
+    if (t.parent) {
+      const p = t.parent;
+      const b = el('span', 'badge link' + (p.missing ? ' warn' : ''), `↑ ${p.id}`);
+      b.title = p.missing ? `Батьківської задачі ${p.id} немає в каталозі` : `Підзадача ${p.id}${p.title ? ' — ' + p.title : ''}. Клік — показати`;
+      if (!p.missing) {
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          focusTask(p.id);
+        });
+      }
+      badges.appendChild(b);
+    }
+    const kids = (t.children || []).length + (t.missingChildren || []).length;
+    if (kids) {
+      const n = t.children.filter((s) => s.done).length;
+      const b = el('span', 'badge link' + (n === t.children.length && !t.missingChildren.length ? ' all-done' : ''), `${expanded[t.id] ? '▾' : '▸'} ☑ ${n}/${kids}`);
+      b.title = `Підзадачі: завершено ${n} з ${kids}. Клік — ${expanded[t.id] ? 'згорнути' : 'розгорнути'} список`;
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        expanded = Object.assign({}, expanded);
+        if (expanded[t.id]) delete expanded[t.id];
+        else expanded[t.id] = true;
+        save();
+        render();
+      });
+      badges.appendChild(b);
+    }
+    if (t.plan) {
+      const b = el('span', 'badge plan', `☐ план ${t.plan}`);
+      b.title = 'Пункти розділу «Підзадачі» без задач — ⊕ щоб розбити задачу за планом';
+      badges.appendChild(b);
+    }
+    // на дошці одного проекту його чип зайвий — показуємо лише інші проекти задачі
+    for (const p of t.projects || []) {
+      if (p.id === state.project.id) continue;
+      const b = el('span', 'badge proj', p.title);
+      b.style.setProperty('--c', colorOf(p.color));
+      b.title = `Проект ${p.title} — відкрити його дошку`;
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ type: 'openBoard', project: p.id });
+      });
+      badges.appendChild(b);
+    }
     if (t.effort) {
       const b = el('span', 'badge effort', `⏱ ${t.effort}`);
       b.title = `Трудомісткість: ${t.effort}`;
@@ -89,6 +222,8 @@
       badges.appendChild(b);
     }
     if (badges.childElementCount) c.appendChild(badges);
+    if (kids && expanded[t.id]) c.appendChild(subtaskList(t));
+    if (t.parent) c.classList.add('is-subtask');
 
     c.addEventListener('click', () => vscode.postMessage({ type: 'open', id: t.id, file: 'task' }));
     c.addEventListener('dragstart', (e) => {
@@ -128,6 +263,7 @@
 
   function render() {
     busyEl.hidden = !state.busy;
+    renderProject();
     board.textContent = '';
     for (const col of columns()) {
       const tasks = state.tasks.filter((t) => t.stage === col.dir && matches(t));
@@ -182,7 +318,8 @@
     render();
   });
   document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
-  document.getElementById('new').addEventListener('click', () => vscode.postMessage({ type: 'newTask' }));
+  document.getElementById('new').addEventListener('click', () => vscode.postMessage({ type: 'newTask', project: state.project.id }));
+  document.getElementById('back').addEventListener('click', () => vscode.postMessage({ type: 'dashboard' }));
   document.getElementById('addColumn').addEventListener('click', () => vscode.postMessage({ type: 'addColumn' }));
 
   window.addEventListener('message', (e) => {
