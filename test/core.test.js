@@ -591,3 +591,13 @@ test('створення підзадачі з шаблону і з пункту
   assert.deepEqual(core.linkSubtasks(all).get('7').children, ['7.1', '7.2']);
   assert.throws(() => core.createSubtask(root, '_template', '1_new', parent, '7.1', 'x'), /уже існує/);
 });
+
+test('наступний номер задачі: найбільший цифровий + 1, ширина з провідними нулями', () => {
+  assert.equal(core.nextTaskId(['00000', '00000.1', '00003', '00006', '00005']), '00007');
+  assert.equal(core.nextTaskId(['86281', '88592', '89894']), '89895');
+  assert.equal(core.nextTaskId(['099']), '100');
+  assert.equal(core.nextTaskId(['9', '0099']), '0100');
+  assert.equal(core.nextTaskId(['abc', '3.1', 'x-7']), '1');
+  assert.equal(core.nextTaskId([]), '1');
+  assert.equal(core.nextTaskId(['99999999999999999999']), '100000000000000000000');
+});

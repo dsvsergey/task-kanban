@@ -1136,6 +1136,49 @@ function wikiLinkProvider() {
 
 // ---------- нова задача ----------
 
+/**
+ * Поле номера задачі з кнопкою «Наступний номер» (найбільший цифровий номер каталогу + 1, core.nextTaskId).
+ * taken — номери наявних задач каталогу. Повертає номер або undefined (скасовано).
+ */
+function askTaskId({ title, prompt, taken }) {
+  const busyIds = new Set(taken.map((x) => String(x).toLowerCase()));
+  const validate = (v) => {
+    const s = v.trim();
+    if (!s) return '';
+    if (!/^[\w.-]+$/.test(s)) return 'Лише цифри, літери, _ . -';
+    return busyIds.has(s.toLowerCase()) ? `Задача ${s} уже є` : '';
+  };
+  const nextBtn = { iconPath: new vscode.ThemeIcon('arrow-up'), tooltip: `Наступний номер: ${core.nextTaskId(taken)} (найбільший + 1)` };
+  const box = vscode.window.createInputBox();
+  box.title = title;
+  box.prompt = prompt;
+  box.placeholder = core.nextTaskId(taken);
+  box.buttons = [nextBtn];
+  box.ignoreFocusOut = true;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => {
+      if (done) return;
+      done = true;
+      resolve(v);
+      box.dispose();
+    };
+    box.onDidChangeValue((v) => (box.validationMessage = validate(v) || undefined));
+    box.onDidTriggerButton((b) => {
+      if (b !== nextBtn) return;
+      box.value = core.nextTaskId(taken);
+      box.validationMessage = validate(box.value) || undefined;
+    });
+    box.onDidAccept(() => {
+      const s = box.value.trim();
+      if (!s || validate(s)) return;
+      finish(s);
+    });
+    box.onDidHide(() => finish(undefined));
+    box.show();
+  });
+}
+
 /** board — id дошки, на якій створюється задача; '*'/undefined — спитати проект, якщо проекти є. */
 async function newTask(board) {
   const ws = requireWorkspace();
@@ -1153,10 +1196,11 @@ async function newTask(board) {
   }
   if (!ctx) ctx = m.get(ALL);
   if (!ctx || !ctx.stages.length) return;
-  const id = await vscode.window.showInputBox({
+  const taken = (ctx.rootTasks || ctx.tasks).map((t) => t.id);
+  const id = await askTaskId({
     title: ctx.kind === 'project' ? `Нова задача — ${ctx.project.title}` : 'Нова задача',
-    prompt: `Номер задачі з трекера (каталог у ${relPath(ws, ctx.root)}/${ctx.stages[0].dir}/)`,
-    validateInput: (v) => (/^[\w.-]+$/.test(v.trim()) ? null : 'Лише цифри, літери, _ . -'),
+    prompt: `Номер задачі з трекера (каталог у ${relPath(ws, ctx.root)}/${ctx.stages[0].dir}/); кнопка ↑ у заголовку — наступний номер (найбільший + 1)`,
+    taken,
   });
   if (!id) return;
   const stage = ctx.stages[0];

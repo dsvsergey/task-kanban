@@ -204,6 +204,9 @@ its own `task.md` and column, dragged on its own. The link is kept by wiki links
   `.vscode/settings.json`; until then the default five columns are used. `Task Kanban: Повернути стандартні
   колонки` (Reset columns) removes the override.
 - `+ Задача` (+ Task) / `Task Kanban: Нова задача` (New task) creates a folder from `Tasks/_template` in the first stage.
+  The ↑ button in the number box fills in the next number: the largest numeric task number of the folder + 1, keeping
+  leading zeros (`00006` → `00007`; subtasks like `00003.1` and non-numeric numbers are ignored). A number that
+  already exists is rejected.
 - A yellow «статус: …» (status) badge means the status in `task.md` does not match the stage.
 - A «⏱ 3:20» chip shows the effort from the `- **Трудомісткість:** 3:20` line of `task.md` — the total time to
   report to the customer (field name: `taskKanban.effortField`).

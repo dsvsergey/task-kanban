@@ -471,6 +471,22 @@ function nextSubtaskId(parentId, takenIds) {
   return `${parentId}.${n}`;
 }
 
+/**
+ * Наступний номер задачі: найбільший суто цифровий номер + 1 з тією ж шириною (провідні нулі: 00006 → 00007).
+ * Номери з літерами і підзадачі (00003.1) не враховуються; цифрових немає — '1'.
+ */
+function nextTaskId(ids) {
+  let best = null;
+  for (const raw of ids) {
+    const s = String(raw).trim();
+    if (!/^\d+$/.test(s)) continue;
+    const v = BigInt(s);
+    if (!best || v > best.v || (v === best.v && s.length > best.s.length)) best = { v, s };
+  }
+  if (!best) return '1';
+  return String(best.v + 1n).padStart(best.s.length, '0');
+}
+
 function eolOf(text) {
   return text.includes('\r\n') ? '\r\n' : '\n';
 }
@@ -1212,6 +1228,7 @@ module.exports = {
   readParent,
   readSubtasks,
   nextSubtaskId,
+  nextTaskId,
   addSubtaskLink,
   linkSubtaskItem,
   setSubtaskChecked,
