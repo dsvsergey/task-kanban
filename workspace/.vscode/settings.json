@@ -1,0 +1,16 @@
+{
+  // Канбан-дошка task-kanban. Проекти додаються з дашборду («Проекти» в рядку стану → + Проект)
+  // або скілом kanban-project. Колонки агента (2_ai, 3_ai_done) — див. settings.yaml → agent.
+  "taskKanban.tasksDir": "Tasks",
+  "taskKanban.templateDir": "_template",
+  "taskKanban.stages": [
+    { "dir": "1_new", "title": "Нове", "status": "нове" },
+    { "dir": "2_ai", "title": "В роботу ШІ", "status": "в роботу ші" },
+    { "dir": "3_ai_done", "title": "Виконані ШІ", "status": "виконані ші" },
+    { "dir": "4_work", "title": "В роботі", "status": "в роботі" },
+    { "dir": "5_testing", "title": "На тестуванні", "status": "на тестуванні" },
+    { "dir": "6_done", "title": "Готово", "status": "готово", "collapsed": true, "done": true }
+  ],
+  "taskKanban.projects": [],
+  "taskKanban.transitions": []
+}

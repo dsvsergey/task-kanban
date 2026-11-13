@@ -2,3 +2,8 @@ test/**
 .vscode/**
 install.ps1
 .gitignore
+AGENTS.md
+CLAUDE.md
+.claude/**
+workspace/**
+new-workspace.ps1

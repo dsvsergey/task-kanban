@@ -306,6 +306,45 @@ In `.vscode/settings.json` of the `<Name>Add` folder.
   Another task's commit or a `push` in between means a new commit.
 - A folder that is not a git repository is skipped with a warning. Nothing is pushed.
 
+## AI agents (Claude Code, OpenCode, Codex)
+
+`workspace/` is a universal working folder for working on any of your projects together with an agent:
+tasks on the board, knowledge about each project in an Obsidian vault that the agent reads for planning and
+development and writes to after each task. It holds no project code — only references to the repositories.
+
+```
+workspace/
+├── AGENTS.md, CLAUDE.md        ← shared agent rules (CLAUDE.md just includes AGENTS.md)
+├── settings.yaml               ← projects (repositories, roles), databases, agent columns, language
+├── .vscode/settings.json       ← board columns: New → To AI → Done by AI → In progress → Testing → Done
+├── .claude/settings.json       ← agent access to the code folders
+├── .claude/skills/
+│   ├── kanban-project/         ← add a project: settings.yaml, access, board, vault section
+│   ├── kanban-tasks/           ← task files: task.md, columns, creating, moving, subtasks
+│   ├── kanban-workflow/        ← a task: context → plan → work → check → result → knowledge
+│   └── kanban-vault/           ← Obsidian: layout, names, frontmatter, what to record after a task
+├── Tasks/_template/            ← task template (task.md, notes.md); tasks — Tasks/<project>/<stage>/<number>/
+└── Obsidian/                   ← vault: 00 Index.md, Templates/; a <project>/ section per project
+```
+
+Deploy (a new folder, or complete an existing one — existing files are kept, `kanban-*` skills are refreshed):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\new-workspace.ps1 -Path D:\work\Projects
+```
+
+Then open the folder in VS Code (the **Проекти** button), open `Obsidian/` as a vault in Obsidian, and ask the
+agent to "add project …" (skill `kanban-project`). Project specifics (language, build, what is off-limits) live
+in the vault note `Obsidian/<project>/Правила (<project>).md`, not in the shared `AGENTS.md`, so the kit is the
+same for every project. Agent columns: a task dragged into "В роботу ШІ" is moved by the agent to
+"Виконані ШІ" when done, with an effort estimate (`settings.yaml → agent`).
+
+Skills in `.claude/skills/` are read by Claude Code and OpenCode; Codex and others read `AGENTS.md`.
+The kit is in Ukrainian, like the board's UI.
+
+For developing the extension itself — `AGENTS.md` and the `.claude/skills/task-kanban-dev/` skill at the
+repository root. These files are not packed into the `.vsix`.
+
 ## Development
 
 ```

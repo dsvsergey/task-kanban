@@ -1,0 +1,36 @@
+# Налаштування робочого каталогу. Читають агенти (AGENTS.md, скіли kanban-*).
+# Новий проект додавати скілом kanban-project: він же оновить .claude/settings.json, дошку і vault.
+
+agent:
+  language: українська          # мова відповідей і документації
+  ai_todo: 2_ai                 # колонка «передано агенту» (dir етапу); порожньо — агент етапи не чіпає
+  ai_done: 3_ai_done            # куди агент переносить виконану задачу
+  effort: true                  # записувати «Трудомісткість» перед перенесенням в ai_done
+
+projects: []
+# Приклад:
+#  - id: shop                     # = id у taskKanban.projects і каталог Tasks/<id>, Obsidian/<id>
+#    title: Shop
+#    description: Інтернет-магазин (бекенд + адмінка)
+#    tasks: Tasks/shop
+#    vault: Obsidian/shop
+#    repos:                       # каталоги з кодом; шляхи — відносно цього каталогу або абсолютні
+#      - path: ../shop-api
+#        role: main               # main | related | tools
+#        type: python
+#        description: REST API
+#      - path: ../shop-admin
+#        role: related
+#        type: typescript
+#    agent:                       # необовʼязково: перевизначення agent: для проекту
+#      ai_todo: 2_ai
+#      ai_done: 3_ai_done
+
+databases: []
+# Приклад (пароль тут не зберігати — змінна оточення або менеджер паролів):
+#  - name: shop-dev
+#    project: shop
+#    engine: postgresql 16
+#    connection: localhost:5432/shop
+#    user: shop
+#    password_env: SHOP_DB_PASSWORD
