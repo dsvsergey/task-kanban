@@ -35,7 +35,9 @@ The extension is not on the Marketplace; it is installed from a `.vsix` file. No
 
 - **From a release** (if one is published): open
   [Releases](https://github.com/dsvsergey/task-kanban/releases), download `task-kanban-<version>.vsix`
-  and go to step 2.
+  and go to step 2. A release may lag behind the code: its version must not be older than the one the project
+  settings were written for (`taskKanban.projects` and the dashboard — 0.5.0+, subtasks — 0.6.0+). If the release
+  is older, build from source.
 - **Build it from source:**
 
   ```powershell
@@ -55,7 +57,27 @@ code --install-extension dist\task-kanban-<version>.vsix
 Or in VS Code: **Extensions** view → `…` menu → **Install from VSIX…** → pick the file.
 Then run `Developer: Reload Window`.
 
-### 3. Set up the project
+If `code` is not found, VS Code did not add itself to `PATH` (the installer's "Add to PATH" option): reopen the
+terminal or call it by full path `& "$env:LOCALAPPDATA\Programs\Microsoft VS Code\bin\code.cmd" …`
+(system-wide install — `C:\Program Files\Microsoft VS Code\bin\code.cmd`).
+
+Check: `code --list-extensions --show-versions` lists `local.task-kanban@<version>`.
+
+### 3. Bring over the working folders
+
+Board settings refer to sibling folders by relative paths (`"repo": "../ultra-delphi"`,
+`"tasksDir": "../task-kanbanAdd/Tasks"`), so clone `<Name>Add` and every repository from its settings
+**into the same parent folder** — the drive and the parent folder itself can be anything:
+
+```powershell
+cd D:\nprojects                      # any
+git clone <url>/UltraAdd.git
+git clone <url>/ultra-delphi.git     # every "repo" in .vscode/settings.json
+```
+
+The folders you need are the `repo` and `tasksDir` values in the workspace `.vscode/settings.json`.
+
+### 4. Set up the project
 
 1. Open the `<Name>Add` folder in VS Code (it must contain `Tasks/_template/`).
 2. Create the stage folders `Tasks/1_new` … `Tasks/5_done` (or define your own in `taskKanban.stages`).
@@ -63,6 +85,20 @@ Then run `Developer: Reload Window`.
    paths relative (`"../my-code"`).
 4. Make sure Git knows who you are: `git config --global user.name "…"` and `git config --global user.email "…"`.
 5. Click **Проекти** (Projects) in the status bar.
+6. Optional: the 💬 button (the task's Claude Code sessions) needs Claude Code installed; it only finds sessions
+   run on this computer.
+
+### Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| No **Проекти** button in the status bar | the opened folder has no `Tasks/_template` at its root (the extension does not activate), or the window was not reloaded |
+| Dashboard shows no projects / settings are flagged as unknown | an old version is installed — see step 1 |
+| Columns are empty, tasks land in "Без етапу" | stage folders do not match `stages` in the settings |
+| A project with `tasksDir: "../…"` is empty, commit says "не git-репозиторій" (not a git repository) | the sibling folder was not cloned next to it — see step 3 |
+| A commit from the board fails with "Please tell me who you are" | git `user.name` / `user.email` are not set |
+
+Error details — Output panel → "Task Kanban".
 
 ### Update and removal
 
