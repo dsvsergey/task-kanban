@@ -551,6 +551,23 @@ function setSubtaskChecked(text, id, done, heading = DEFAULT_SUBTASKS_HEADING) {
   return lines.join(eol);
 }
 
+/** Прибирає з розділу підзадач пункти з посиланням на id (задачу видалено); таких немає — текст без змін. */
+function removeSubtaskLink(text, id, heading = DEFAULT_SUBTASKS_HEADING) {
+  const key = String(id).toLowerCase();
+  const items = readSubtasks(text, heading).filter((x) => x.id && x.id.toLowerCase() === key);
+  if (!items.length) return text;
+  const eol = eolOf(text);
+  const lines = text.split(/\r?\n/);
+  for (const it of items.reverse()) lines.splice(it.line, 1);
+  return lines.join(eol);
+}
+
+/** Прибирає рядок поля «- **<label>:** …»; немає — текст без змін. */
+function removeField(text, label) {
+  const re = new RegExp(`^[ \\t]*[-*][ \\t]*\\*\\*${escapeRegExp(label)}:\\*\\*[^\\r\\n]*(\\r?\\n|$)`, 'mi');
+  return text.replace(re, '');
+}
+
 /** Текст розділу Description: заглушку шаблону «<...>» замінює, інакше дописує першим рядком. */
 function writeDescription(text, value) {
   const eol = eolOf(text);
@@ -796,6 +813,18 @@ async function renameWithRetry(src, dst, { attempts = 12, delayMs = 250 } = {}) 
       await new Promise((r) => setTimeout(r, delayMs));
     }
   }
+}
+
+/**
+ * Видалення каталогу задачі назавжди. Спершу — перейменування в службовий `_deleting-…` поруч (сканер його не
+ * бачить): зайнятий каталог не перейменовується, і задача лишається цілою (помилка LOCKED), а не видаляється
+ * наполовину. Потім — рекурсивне видалення.
+ */
+async function deleteTaskDir(dir, retry) {
+  if (!fs.existsSync(dir)) throw new Error(`Каталогу ${dir} немає`);
+  const tmpDir = path.join(path.dirname(dir), `_deleting-${path.basename(dir)}-${Date.now()}`);
+  await renameWithRetry(dir, tmpDir, retry);
+  fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
 async function moveTask(tasksRoot, stages, id, toDir, retry) {
@@ -1232,6 +1261,10 @@ module.exports = {
   addSubtaskLink,
   linkSubtaskItem,
   setSubtaskChecked,
+  removeSubtaskLink,
+  removeField,
+  deleteTaskDir,
+  walk,
   writeDescription,
   linkSubtasks,
   createSubtask,

@@ -192,6 +192,11 @@ its own `task.md` and column, dragged on its own. The link is kept by wiki links
   into the Projects line; on the «All tasks» board the project is asked for.
 - Drag a card to another column to move the task.
 - Click a card to open `task.md`; ✎ opens `notes.md`; 📁 reveals the folder in the Explorer.
+- 🗑 on a card deletes the task: after confirmation the task folder goes to the Recycle Bin (restore it from there);
+  if the Recycle Bin is unavailable, permanent deletion is offered. The `[[number]]` item is removed from the parent
+  task's «Підзадачі» (Subtasks) section. If the task has subtasks you choose: keep them as standalone tasks (their
+  «Батьківська задача» field is removed) or delete them too. A folder held by a terminal or another program is left
+  untouched; task files with unsaved changes must be saved or closed first. Deletion is not committed.
 - 💬 lists the Claude Code sessions in which the task was worked on (found by the task number in your prompts;
   ★ — the session started with this task) and opens the chosen one in the Claude Code extension, or in a
   terminal with `claude --resume <id>` if the extension is not installed (`taskKanban.sessionOpenIn`). Also:

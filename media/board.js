@@ -157,7 +157,14 @@
       e.stopPropagation();
       vscode.postMessage({ type: 'addSubtask', id: t.id });
     });
-    tools.append(split, chat, notes, reveal);
+    const del = el('button', 'icon danger', '🗑');
+    del.title = 'Видалити задачу (каталог — у Кошик; спершу підтвердження)';
+    del.disabled = state.busy;
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ type: 'deleteTask', id: t.id });
+    });
+    tools.append(split, chat, notes, reveal, del);
     head.appendChild(tools);
     c.appendChild(head);
 

@@ -601,3 +601,37 @@ test('наступний номер задачі: найбільший цифр�
   assert.equal(core.nextTaskId([]), '1');
   assert.equal(core.nextTaskId(['99999999999999999999']), '100000000000000000000');
 });
+
+test('видалення задачі: звʼязки з підзадачами і каталог', async () => {
+  const parent = '# Task 7\r\n\r\n## Підзадачі\r\n\r\n- [x] [[7.1]] Частина А\r\n- [ ] [[7.2]] Частина Б\r\n- [ ] План\r\n\r\n## Результат\r\n';
+  assert.equal(core.removeSubtaskLink(parent, '7.1'), '# Task 7\r\n\r\n## Підзадачі\r\n\r\n- [ ] [[7.2]] Частина Б\r\n- [ ] План\r\n\r\n## Результат\r\n');
+  assert.equal(core.removeSubtaskLink(parent, '7.3'), parent);
+  assert.equal(core.removeSubtaskLink('# Task 7\n\n[[7.1]] у тексті\n', '7.1'), '# Task 7\n\n[[7.1]] у тексті\n', 'поза розділом не чіпається');
+
+  const child = '# Task 7.1\n\n- **Статус:** нове\n- **Батьківська задача:** [[7]]\n- **Проекти:** x\n\n## Description\n';
+  assert.equal(core.removeField(child, 'Батьківська задача'), '# Task 7.1\n\n- **Статус:** нове\n- **Проекти:** x\n\n## Description\n');
+  assert.equal(core.removeField(child, 'Трудомісткість'), child);
+  assert.equal(core.removeField('- **Батьківська задача:** 7', 'Батьківська задача'), '');
+
+  const root = tmp();
+  write(path.join(root, '1_new', '7', 'task.md'), '# Task 7\n');
+  write(path.join(root, '1_new', '7', 'sub', 'a.sql'), 'select 1');
+  assert.equal(core.walk(path.join(root, '1_new', '7')).length, 2);
+  await core.deleteTaskDir(path.join(root, '1_new', '7'));
+  assert.deepEqual(fs.readdirSync(path.join(root, '1_new')), [], 'ні задачі, ні службового каталогу');
+  await assert.rejects(() => core.deleteTaskDir(path.join(root, '1_new', '7')), /немає/);
+});
+
+test('видалення зайнятого каталогу: задача лишається цілою (Windows)', { skip: process.platform !== 'win32' }, async () => {
+  const root = tmp();
+  const dir = path.join(root, '1_new', '7');
+  write(path.join(dir, 'task.md'), '# Task 7\n');
+  const prev = process.cwd();
+  process.chdir(dir);
+  try {
+    await assert.rejects(() => core.deleteTaskDir(dir, { attempts: 2, delayMs: 20 }), (e) => e.code === 'LOCKED');
+    assert.ok(fs.existsSync(path.join(dir, 'task.md')));
+  } finally {
+    process.chdir(prev);
+  }
+});

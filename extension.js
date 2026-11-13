@@ -342,6 +342,9 @@ async function onMessage(m, context, scope) {
       case 'moveToProject':
         await moveToProject(where, m.id);
         break;
+      case 'deleteTask':
+        await deleteTask(where, m.id);
+        break;
       case 'open': {
         const { task: t } = findTask();
         const file = t && (m.file === 'notes' ? t.notesFile : t.taskFile);
@@ -389,11 +392,11 @@ async function onMessage(m, context, scope) {
 
 // ---------- перенесення ----------
 
-function lockedError(task, e) {
+function lockedError(task, e, verb = 'перенесено') {
   if (e.code !== 'LOCKED') return e;
   const terms = terminalsIn(task.dir);
   const hint = terms.length ? ` Термінал у цьому каталозі: ${terms.join(', ')}.` : '';
-  return new Error(`${task.id} не перенесено: ${e.message}${hint}`);
+  return new Error(`${task.id} не ${verb}: ${e.message}${hint}`);
 }
 
 async function move(ws, ctx, task, toDir) {
@@ -526,6 +529,159 @@ async function moveToProject(where, taskId) {
     warnStatus(taskId, stage, res);
   } finally {
     setBusy(false);
+  }
+}
+
+// ---------- видалення ----------
+
+/** Вкладки редактора з файлами каталогу dir: { clean, dirty }. */
+function tabsIn(dir) {
+  const base = path.resolve(dir).toLowerCase() + path.sep;
+  const clean = [];
+  const dirty = [];
+  for (const g of vscode.window.tabGroups.all) {
+    for (const tab of g.tabs) {
+      const uri = tab.input && tab.input.uri;
+      if (!uri || uri.scheme !== 'file' || !path.resolve(uri.fsPath).toLowerCase().startsWith(base)) continue;
+      (tab.isDirty ? dirty : clean).push(tab);
+    }
+  }
+  return { clean, dirty };
+}
+
+/** Підзадачі задачі з усіма їхніми підзадачами — знизу вгору (спершу найглибші). */
+function descendants(links, find, id, seen = new Set([id])) {
+  const out = [];
+  for (const c of (links.get(id) || { children: [] }).children) {
+    if (seen.has(c)) continue;
+    seen.add(c);
+    out.push(...descendants(links, find, c, seen));
+    const t = find(c);
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Каталог задачі — у Кошик; не вийшло — після підтвердження назавжди. Зайнятий каталог не чіпається:
+ * спершу пробне перейменування туди й назад (Кошик на зайнятому каталозі може видалити лише частину файлів).
+ * Повертає 'trash' | 'permanent' | null (видалення назавжди скасовано).
+ */
+async function removeTaskDir(task) {
+  const probe = path.join(path.dirname(task.dir), `_checking-${task.id}-${Date.now()}`);
+  try {
+    await core.renameWithRetry(task.dir, probe);
+  } catch (e) {
+    throw lockedError(task, e, 'видалено');
+  }
+  try {
+    await core.renameWithRetry(probe, task.dir);
+  } catch (e) {
+    throw new Error(`${task.id}: не вдалося повернути каталог після перевірки — він лишився як ${probe} (${e.message})`);
+  }
+  try {
+    await vscode.workspace.fs.delete(vscode.Uri.file(task.dir), { recursive: true, useTrash: true });
+    return 'trash';
+  } catch (e) {
+    if (!fs.existsSync(task.dir)) return 'trash';
+    log(`${task.id}: Кошик — ${e.message}`);
+    const ok = await vscode.window.showWarningMessage(
+      `${task.id}: не вдалося перенести каталог у Кошик (${e.message}). Видалити назавжди?`,
+      { modal: true },
+      'Видалити назавжди',
+    );
+    if (ok !== 'Видалити назавжди') return null;
+    try {
+      await core.deleteTaskDir(task.dir);
+    } catch (e2) {
+      throw lockedError(task, e2, 'видалено');
+    }
+    return 'permanent';
+  }
+}
+
+/** Прибирає звʼязки з видаленими задачами: пункти [[номер]] у розділах підзадач і поле батьківської задачі. */
+function unlinkDeleted(ws, rootTasks, deletedIds) {
+  const gone = new Set(deletedIds.map((x) => x.toLowerCase()));
+  for (const t of rootTasks) {
+    if (gone.has(t.id.toLowerCase()) || !t.taskFile) continue;
+    const linked = (t.subtasks || []).filter((x) => x.id && gone.has(x.id.toLowerCase())).map((x) => x.id);
+    const orphan = t.parent && gone.has(t.parent.toLowerCase());
+    if (!linked.length && !orphan) continue;
+    try {
+      const text = fs.readFileSync(t.taskFile, 'utf8');
+      let next = text;
+      for (const id of linked) next = core.removeSubtaskLink(next, id, ws.subtasksHeading);
+      if (orphan) next = core.removeField(next, ws.parentField);
+      if (next !== text) {
+        fs.writeFileSync(t.taskFile, next, 'utf8');
+        log(`${t.id}: прибрано звʼязок з ${[...linked, ...(orphan ? [t.parent] : [])].join(', ')}`);
+      }
+    } catch (e) {
+      log(`${t.id}: не вдалося прибрати звʼязок з видаленими задачами: ${e.message}`);
+    }
+  }
+}
+
+/** Видалення задачі з дошки: підтвердження, каталог — у Кошик, звʼязки з підзадачами/батьківською прибираються. */
+async function deleteTask(where, taskId) {
+  const ws = requireWorkspace();
+  if (!ws || busy) return;
+  const ctx = model(ws).get(where);
+  const task = ctx && ctx.tasks.find((t) => t.id === taskId);
+  if (!task) return;
+  const rootTasks = ctx.rootTasks || ctx.tasks;
+  const links = core.linkSubtasks(rootTasks);
+  const find = (id) => rootTasks.find((t) => t.id === id);
+  const parent = links.get(task.id).parent ? find(links.get(task.id).parent) : null;
+  const kids = descendants(links, find, task.id);
+
+  const DEL = 'Видалити';
+  const DEL_ALL = `Видалити з підзадачами (${kids.length})`;
+  const detail = [`Каталог ${relPath(ws, task.dir)} (файлів: ${core.walk(task.dir).length}) буде перенесено в Кошик.`];
+  if (parent) detail.push(`З розділу «${ws.subtasksHeading}» задачі ${parent.id} буде прибрано пункт [[${task.id}]].`);
+  if (kids.length) {
+    detail.push(
+      `Підзадачі: ${kids.map((t) => t.id).join(', ')}. «${DEL}» — вони лишаться окремими задачами (поле «${ws.parentField}» ` +
+        `буде прибрано); «${DEL_ALL}» — будуть видалені теж.`,
+    );
+  }
+  const pick = await vscode.window.showWarningMessage(
+    `Видалити задачу ${task.id}${task.title ? ' — ' + task.title : ''}?`,
+    { modal: true, detail: detail.join('\n\n') },
+    DEL,
+    ...(kids.length ? [DEL_ALL] : []),
+  );
+  if (pick !== DEL && pick !== DEL_ALL) return;
+  const victims = pick === DEL_ALL ? [...kids, task] : [task];
+
+  const dirty = victims.flatMap((t) => tabsIn(t.dir).dirty);
+  if (dirty.length) {
+    vscode.window.showWarningMessage(`Незбережені зміни: ${dirty.map((t) => t.label).join(', ')}. Збережіть або закрийте ці файли і повторіть.`);
+    return;
+  }
+
+  setBusy(true);
+  const deleted = [];
+  let permanent = false;
+  try {
+    for (const t of victims) {
+      const tabs = tabsIn(t.dir).clean;
+      if (tabs.length) await vscode.window.tabGroups.close(tabs);
+      const how = await removeTaskDir(t);
+      if (!how) break;
+      if (how === 'permanent') permanent = true;
+      deleted.push(t.id);
+      log(`${t.id}: видалено ${how === 'trash' ? 'в Кошик' : 'назавжди'} — ${relPath(ws, t.dir)}`);
+    }
+  } finally {
+    unlinkDeleted(ws, rootTasks, deleted);
+    setBusy(false);
+  }
+  if (deleted.length) {
+    vscode.window.showInformationMessage(
+      `Видалено: ${deleted.join(', ')}${permanent ? '' : ' — каталоги в Кошику, їх можна відновити'}.`,
+    );
   }
 }
 
