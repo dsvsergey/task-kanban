@@ -164,6 +164,16 @@
       e.stopPropagation();
       vscode.postMessage({ type: 'deleteTask', id: t.id });
     });
+    // ⚡ — шаблонні промпти колонки задачі (налаштовуються ⚡ у заголовку колонки)
+    const st = state.stages.find((s) => s.dir === t.stage);
+    const nPrompts = st && Array.isArray(st.prompts) ? st.prompts.filter((p) => p && p.text).length : 0;
+    const run = el('button', 'icon' + (nPrompts ? '' : ' faint'), '⚡');
+    run.title = nPrompts ? `Промпти колонки (${nPrompts}) — відкрити в Claude Code з файлами задачі` : 'У колонці немає промптів — налаштувати';
+    run.addEventListener('click', (e) => {
+      e.stopPropagation();
+      vscode.postMessage(nPrompts ? { type: 'prompts', id: t.id } : { type: 'editPrompts', dir: t.stage });
+    });
+    if (st) tools.appendChild(run);
     tools.append(split, chat, notes, reveal, del);
     head.appendChild(tools);
     c.appendChild(head);
@@ -258,6 +268,9 @@
     btn('◀', 'Перемістити ліворуч', { type: 'moveColumn', dir: col.dir, delta: -1 }, idx <= 0);
     btn('▶', 'Перемістити праворуч', { type: 'moveColumn', dir: col.dir, delta: 1 }, idx >= state.stages.length - 1);
     btn('✎', 'Змінити назву і статус', { type: 'editColumn', dir: col.dir });
+    const st = state.stages[idx];
+    const n = st && Array.isArray(st.prompts) ? st.prompts.length : 0;
+    btn('⚡', `Промпти колонки${n ? ` (${n})` : ''} — викликаються ⚡ на картках`, { type: 'editPrompts', dir: col.dir });
     btn('＋', 'Додати колонку праворуч', { type: 'addColumn', after: idx });
     btn(
       '✕',

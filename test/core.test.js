@@ -687,3 +687,60 @@ test('видалення зайнятого каталогу: задача ли�
     process.chdir(prev);
   }
 });
+
+test('промпти колонки: маски, підстановки, посилання на файли', () => {
+  assert.deepEqual(core.normalizePrompts([{ text: '  ' }, null, { title: ' A ', text: ' x ' }, { text: 'y' }]), [
+    { title: 'A', text: 'x' },
+    { title: '', text: 'y' },
+  ]);
+  assert.equal(core.promptLabel({ title: '', text: 'Перший рядок\nдругий' }), 'Перший рядок');
+  assert.equal(core.promptLabel({ title: 'Назва', text: 'x' }), 'Назва');
+
+  const text = 'Проаналізуйте [task.md] і [*v*.zip]; - [x] [ ] [номер] [[00003]] [посилання](http://x) [task.md]';
+  assert.deepEqual(core.promptMasks(text), ['task.md', '*v*.zip']);
+
+  const ws = tmp();
+  const dir = path.join(ws, 'Tasks', '3_work', '00009');
+  write(path.join(dir, 'task.md'), '# Task');
+  write(path.join(dir, 'task_00009.v1.zip'), 'a');
+  write(path.join(dir, 'task_00009.v2.zip'), 'b');
+  write(path.join(dir, 'orig', 'task.md'), 'old');
+  write(path.join(dir, 'sql', 'path.sql'), 's');
+  const old = new Date(Date.now() - 60000);
+  fs.utimesSync(path.join(dir, 'task_00009.v1.zip'), old, old);
+
+  assert.deepEqual(core.matchTaskFiles(dir, 'task.md').map((f) => f.rel), ['task.md', 'orig/task.md'], 'спершу корінь');
+  assert.deepEqual(core.matchTaskFiles(dir, '*v*.zip').map((f) => f.rel), ['task_00009.v2.zip', 'task_00009.v1.zip'], 'спершу новіші');
+  assert.deepEqual(core.matchTaskFiles(dir, 'sql/*.sql').map((f) => f.rel), ['sql/path.sql']);
+  assert.deepEqual(core.matchTaskFiles(dir, '*.sql').map((f) => f.rel), ['sql/path.sql'], 'без «/» — за іменем у підкаталогах');
+  assert.deepEqual(core.matchTaskFiles(dir, 'none.txt'), []);
+
+  const files = new Map([['task.md', [path.join(dir, 'task.md')]], ['*v*.zip', []]]);
+  const r = core.expandPrompt('Задача {number} ({stageTitle}): [task.md], архів [*v*.zip], - [x] {unknown}', {
+    vars: { number: '00009', stageTitle: 'В роботі' },
+    files,
+    folder: ws,
+  });
+  assert.equal(r.text, 'Задача 00009 (В роботі): @Tasks/3_work/00009/task.md, архів [*v*.zip], - [x] {unknown}');
+  assert.deepEqual(r.missing, ['*v*.zip']);
+
+  assert.deepEqual(core.promptMasks('виконайте {task.md} і {*.zip}, {number}'), ['task.md', '*.zip'], 'фігурні дужки');
+  const curly = core.expandPrompt('Задача {number}: {task.md}  {*v*.zip}', { vars: { number: '9' }, files, folder: ws });
+  assert.equal(curly.text, 'Задача 9: @Tasks/3_work/00009/task.md  {*v*.zip}');
+  assert.deepEqual(curly.missing, ['*v*.zip']);
+
+  const two = core.expandPrompt('[*.zip]', { files: new Map([['*.zip', [path.join(dir, 'a.zip'), path.join(dir, 'b c.zip')]]]), folder: ws });
+  assert.equal(two.text, '@Tasks/3_work/00009/a.zip @"Tasks/3_work/00009/b c.zip"');
+  const outside = core.fileRef(path.join(os.tmpdir(), 'x.md'), ws);
+  assert.ok(outside.startsWith('@') && path.isAbsolute(outside.slice(1)), 'поза робочою областю — абсолютний шлях');
+
+  const stages = core.setStagePrompts(STAGES, '3_work', [{ title: '', text: ' a ' }, { title: 'B', text: 'b' }, { text: '' }]);
+  assert.deepEqual(stages[1].prompts, [{ text: 'a' }, { title: 'B', text: 'b' }]);
+  assert.equal(stages[0].prompts, undefined);
+  assert.equal(core.setStagePrompts(stages, '3_work', [])[1].prompts, undefined, 'порожній список прибирається');
+  assert.equal(core.updateStage(stages, '3_work', { title: 'X' })[1].prompts.length, 2, '✎ колонки промпти не губить');
+
+  assert.equal(core.shellArg("it's\nok", 'powershell'), "'it''s ok'");
+  assert.equal(core.shellArg('say "hi"', 'cmd'), '"say ""hi"""');
+  assert.equal(core.shellArg("it's", 'posix'), "'it'\\''s'");
+});

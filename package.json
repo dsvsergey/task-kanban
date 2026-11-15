@@ -102,6 +102,18 @@
               "done": {
                 "type": "boolean",
                 "description": "Задачі цієї колонки — завершені (дашборд не рахує їх активними). Якщо не позначено жодної — завершені згорнуті колонки і остання."
+              },
+              "prompts": {
+                "type": "array",
+                "markdownDescription": "Шаблонні промпти колонки — кнопка ⚡ на картках її задач. `[маска]` або `{маска}` — файли каталогу задачі (`[task.md]`, `[*v*.zip]`, `[sql/*.sql]`) → посилання `@шлях`; підстановки `{number}`, `{title}`, `{stage}`, `{stageTitle}`, `{status}`, `{taskDir}`. Керуються кнопкою ⚡ у заголовку колонки.",
+                "items": {
+                  "type": "object",
+                  "required": ["text"],
+                  "properties": {
+                    "title": { "type": "string", "description": "Назва в списку (інакше — початок тексту)." },
+                    "text": { "type": "string", "description": "Текст промпта." }
+                  }
+                }
               }
             }
           },
@@ -183,7 +195,16 @@
                     "title": { "type": "string" },
                     "status": { "type": "string" },
                     "collapsed": { "type": "boolean" },
-                    "done": { "type": "boolean" }
+                    "done": { "type": "boolean" },
+                    "prompts": {
+                      "type": "array",
+                      "description": "Шаблонні промпти колонки (як у taskKanban.stages).",
+                      "items": {
+                        "type": "object",
+                        "required": ["text"],
+                        "properties": { "title": { "type": "string" }, "text": { "type": "string" } }
+                      }
+                    }
                   }
                 }
               },
@@ -223,6 +244,19 @@
           ],
           "default": "auto",
           "markdownDescription": "Де відкривати сесію Claude Code, вибрану кнопкою 💬 на картці."
+        },
+        "taskKanban.promptOpenIn": {
+          "scope": "resource",
+          "type": "string",
+          "enum": ["auto", "extension", "terminal", "clipboard"],
+          "enumDescriptions": [
+            "Нова розмова в розширенні Claude Code (текст — у полі вводу, відправляєте ви), без розширення — термінал",
+            "Розширення Claude Code; без нього — термінал з попередженням",
+            "Термінал: claude \"<промпт>\" (виконується одразу)",
+            "Лише скопіювати в буфер обміну"
+          ],
+          "default": "auto",
+          "markdownDescription": "Куди відкривати шаблонний промпт колонки, вибраний кнопкою ⚡ на картці."
         },
         "taskKanban.transitions": {
           "scope": "resource",

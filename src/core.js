@@ -1286,7 +1286,134 @@ async function commitFiles(repo, files, message, opts = {}) {
   }
 }
 
+// ---------- шаблонні промпти колонок ----------
+//
+// stage.prompts: [{ title, text }]. У тексті: {number} {title} {stage} {stageTitle} {status} {taskDir} і
+// [маска] — файли каталогу задачі (`[task.md]`, `[*v*.zip]`, `[sql/*.sql]`), що стають посиланнями @шлях.
+// {маска} — те саме, що [маска]. [маска] — лише без пробілів і з «.», «*», «?» або «/»: `[x]`, `[ ]`, `[номер]` лишаються текстом;
+// `[[wiki]]` і `[текст](url)` не чіпаються.
+
+// змінні {number} … крапок/зірочок не мають — з {маскою} не плутаються
+const PROMPT_MASK = /(?<!\[)\[([^\[\]\s]+)\](?![\]\(])|\{([^{}\s]+)\}/g;
+
+function isFileMask(s) {
+  return /^[^\s<>|"]+$/.test(s) && /[.*?/\\]/.test(s);
+}
+
+/** Промпти колонки: лише з текстом; title — назва в списку (інакше початок тексту). */
+function normalizePrompts(list) {
+  const out = [];
+  for (const p of Array.isArray(list) ? list : []) {
+    if (!p || typeof p !== 'object') continue;
+    const text = String(p.text || '').trim();
+    if (!text) continue;
+    const n = { title: String(p.title || '').trim(), text };
+    out.push(n);
+  }
+  return out;
+}
+
+/** Назва промпта для списку: title або перший рядок тексту (обрізаний). */
+function promptLabel(p, max = 60) {
+  if (p.title) return p.title;
+  const line = String(p.text || '').split(/\r?\n/)[0].trim();
+  return line.length > max ? line.slice(0, max - 1) + '…' : line;
+}
+
+/** Маски файлів у тексті промпта — унікальні, у порядку появи. */
+function promptMasks(text) {
+  const out = [];
+  for (const m of String(text).matchAll(PROMPT_MASK)) {
+    const mask = m[1] || m[2];
+    if (isFileMask(mask) && !out.includes(mask)) out.push(mask);
+  }
+  return out;
+}
+
+function maskRegExp(mask, withDirs) {
+  let re = '';
+  for (const ch of mask.replace(/\\/g, '/')) {
+    if (ch === '*') re += withDirs ? '[^/]*' : '.*';
+    else if (ch === '?') re += '.';
+    else re += ch.replace(/[.+^${}()|[\]\\/]/g, '\\$&');
+  }
+  return new RegExp(`^${re}$`, 'i');
+}
+
+/**
+ * Файли каталогу задачі за маскою: маска без «/» — за іменем файла в усіх підкаталогах, з «/» — за шляхом
+ * відносно каталогу задачі. Спершу найновіші (за часом зміни), при рівності — за шляхом.
+ */
+function matchTaskFiles(taskDir, mask) {
+  const withDirs = /[/\\]/.test(mask);
+  const re = maskRegExp(mask.replace(/^\.?[/\\]/, ''), withDirs);
+  const found = [];
+  for (const file of walk(taskDir)) {
+    const rel = path.relative(taskDir, file).split(path.sep).join('/');
+    if (re.test(withDirs ? rel : path.basename(file))) found.push({ file, rel, mtime: mtime(file) });
+  }
+  // спершу файли в корені каталогу задачі, потім глибші
+  const depth = (f) => f.rel.split('/').length;
+  found.sort((a, b) => depth(a) - depth(b) || b.mtime - a.mtime || a.rel.localeCompare(b.rel));
+  return found;
+}
+
+/** Посилання на файл для Claude Code: @шлях відносно робочої області (поза нею — абсолютний), з «/». */
+function fileRef(file, folder) {
+  let rel = folder ? path.relative(folder, file) : file;
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) rel = path.resolve(file);
+  rel = rel.split(path.sep).join('/');
+  return /\s/.test(rel) ? `@"${rel}"` : `@${rel}`;
+}
+
+/**
+ * Готовий текст промпта: підстановки vars ({number} …) і маски файлів. files — Map маска → [файли];
+ * маска без файлів лишається як є. Повертає { text, missing: [маски без файлів] }.
+ */
+function expandPrompt(text, { vars = {}, files = new Map(), folder } = {}) {
+  const missing = [];
+  const filled = fill(text, vars).replace(PROMPT_MASK, (m, sq, cu) => {
+    const mask = sq || cu;
+    if (!isFileMask(mask)) return m;
+    const list = files.get(mask) || [];
+    if (!list.length) {
+      if (!missing.includes(mask)) missing.push(mask);
+      return m;
+    }
+    return list.map((f) => fileRef(f, folder)).join(' ');
+  });
+  return { text: filled, missing };
+}
+
+/** Колонки з новим списком промптів колонки dir (порожній — прибрати). */
+function setStagePrompts(stages, dir, prompts) {
+  const list = normalizePrompts(prompts).map((p) => (p.title ? p : { text: p.text }));
+  return stages.map((s) => {
+    if (s.dir !== dir) return s;
+    const n = { ...s };
+    if (list.length) n.prompts = list;
+    else delete n.prompts;
+    return n;
+  });
+}
+
+/** Рядок як один аргумент командного рядка: 'powershell' | 'cmd' | 'posix'. Переводи рядків — пробіли. */
+function shellArg(s, kind = 'posix') {
+  const one = String(s).replace(/\s*\r?\n\s*/g, ' ').trim();
+  if (kind === 'powershell') return `'${one.replace(/['‘’‚‛]/g, (c) => c + c)}'`;
+  if (kind === 'cmd') return `"${one.replace(/"/g, '""')}"`;
+  return `'${one.replace(/'/g, `'\\''`)}'`;
+}
+
 module.exports = {
+  normalizePrompts,
+  promptLabel,
+  promptMasks,
+  matchTaskFiles,
+  fileRef,
+  expandPrompt,
+  setStagePrompts,
+  shellArg,
   findTaskFile,
   writeField,
   wikiTarget,

@@ -48,6 +48,15 @@ exports.run = async function () {
     await cfg().update('accumulateCommits', false, vscode.ConfigurationTarget.WorkspaceFolder);
     check(cfg().get('accumulateCommits') === false, 'запис accumulateCommits у налаштування папки (scope: resource)');
     await cfg().update('accumulateCommits', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+    check(cfg().get('promptOpenIn') === 'auto', 'налаштування promptOpenIn оголошене (auto)');
+    await cfg().update('promptOpenIn', 'clipboard', vscode.ConfigurationTarget.WorkspaceFolder);
+    check(cfg().get('promptOpenIn') === 'clipboard', 'запис promptOpenIn у налаштування папки (scope: resource)');
+    await cfg().update('promptOpenIn', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+    const withPrompts = defaults.map((s) => (s.dir === '3_work' ? { ...s, prompts: [{ title: 'Виконати', text: 'Виконайте [task.md]' }] } : s));
+    await cfg().update('stages', withPrompts, vscode.ConfigurationTarget.WorkspaceFolder);
+    const saved = cfg().get('stages').find((s) => s.dir === '3_work');
+    check(saved && saved.prompts && saved.prompts[0].text === 'Виконайте [task.md]', 'промпти колонки зберігаються в stages');
+    await cfg().update('stages', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
     await cfg().update('subtasksHeading', 'Subtasks', vscode.ConfigurationTarget.WorkspaceFolder);
     check(cfg().get('subtasksHeading') === 'Subtasks', 'запис subtasksHeading у налаштування папки (scope: resource)');
     await cfg().update('subtasksHeading', undefined, vscode.ConfigurationTarget.WorkspaceFolder);

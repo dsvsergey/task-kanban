@@ -237,8 +237,18 @@ its own `task.md` and column, dragged on its own. The link is kept by wiki links
   ★ — the session started with this task) and opens the chosen one in the Claude Code extension, or in a
   terminal with `claude --resume <id>` if the extension is not installed (`taskKanban.sessionOpenIn`). Also:
   `Task Kanban: Сесії Claude Code задачі` (Claude Code sessions of a task).
+- ⚡ on a card — **column prompt templates**: the prompts of the task's column; the chosen one opens as a new
+  Claude Code conversation with the text in the input box (check it and press Enter). In the text `[mask]` means
+  files of the task folder, turned into `@path` mentions: `[task.md]`, `[*v*.zip]`, `[sql/*.sql]`
+  (or in curly braces: `{task.md}`, `{*.zip}`) (without «/» —
+  by file name in all subfolders, the task root first; several matches — you choose, newest first). A mask has no
+  spaces and contains «.», «*», «?» or «/», so `[x]`, `[number]`, `[[00003]]` stay text. Placeholders:
+  `{number}`, `{title}`, `{stage}`, `{stageTitle}`, `{status}`, `{taskDir}`. Without the Claude Code extension —
+  a terminal with `claude "<prompt>"`, or just the clipboard (`taskKanban.promptOpenIn`). A faded ⚡ — the column
+  has no prompts (click to set them up).
 - Click a column header to collapse/expand it.
-- **Columns** (hover a column header): ◀ ▶ move it, ✎ rename it and change its `task.md` status, ＋ add a
+- **Columns** (hover a column header): ◀ ▶ move it, ✎ rename it and change its `task.md` status, ⚡ edit the column prompts
+  (add, change, reorder, delete; multi-line ones are easier to edit in `settings.json`), ＋ add a
   column to the right, ✕ delete it (only an empty one; its folder is removed if nothing but `.gitkeep` is left).
   `+ Колонка` (+ Column) in the toolbar adds a column at a chosen position: title → folder (suggested from the
   title, e.g. «Архів» → `6_arkhiv`) → status. Changes are saved to `taskKanban.stages` in the project's
@@ -265,7 +275,8 @@ In `.vscode/settings.json` of the `<Name>Add` folder.
 | `taskKanban.templateDir` | `_template` | new task template inside `tasksDir` |
 | `taskKanban.effortField` | `Трудомісткість` | `task.md` field shown on the card as a ⏱ chip; empty — hide |
 | `taskKanban.sessionOpenIn` | `auto` | where 💬 opens a session: `auto` (extension, else terminal), `extension`, `terminal` |
-| `taskKanban.stages` | `1_new` … `5_done` | columns: `dir`, `title`, `status` (value written to `task.md`), `collapsed`, `done` |
+| `taskKanban.promptOpenIn` | `auto` | where ⚡ opens a prompt: `auto` (new Claude Code conversation, else terminal), `extension`, `terminal`, `clipboard` |
+| `taskKanban.stages` | `1_new` … `5_done` | columns: `dir`, `title`, `status` (value written to `task.md`), `collapsed`, `done`, `prompts` (prompt templates: `title`, `text`) |
 | `taskKanban.projects` | `[]` | projects: `id`, `title`, `description`, `aliases`, `color`, `tasksDir`, `stages`, `templateDir`, `transitions` — see [Projects](#projects-and-the-dashboard) |
 | `taskKanban.projectField` | `Проекти` | `task.md` field with the task's projects |
 | `taskKanban.parentField` | `Батьківська задача` | subtask's `task.md` field with the `[[number]]` link to its parent |
@@ -273,6 +284,22 @@ In `.vscode/settings.json` of the `<Name>Add` folder.
 | `taskKanban.commitMessage` | `{number}` | commit message: `{number}`, `{stage}`, `{status}`, `{title}` |
 | `taskKanban.accumulateCommits` | `true` | accumulate a task's commits: a move amends the task's last unpushed commit |
 | `taskKanban.transitions` | `[]` | actions on move |
+
+### Column prompts
+
+```jsonc
+"taskKanban.stages": [
+  { "dir": "3_work", "title": "In progress", "status": "in progress",
+    "prompts": [
+      { "title": "Do the task",
+        "text": "Analyse the Delphi, SQL and code (reports if needed) for the task [task.md] and do the task." },
+      { "title": "Archive date",
+        "text": "[*v*.zip] set the date of the archive and its files to today, 12:00" }
+    ] }
+]
+```
+
+Projects with their own columns use the same field in the project's `stages` (`taskKanban.projects`).
 
 ### Transitions
 

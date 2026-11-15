@@ -38,6 +38,7 @@ function workspace() {
         subtasksHeading: cfg.get('subtasksHeading', core.DEFAULT_SUBTASKS_HEADING) || core.DEFAULT_SUBTASKS_HEADING,
         projects: core.normalizeProjects(cfg.get('projects', [])),
         sessionOpenIn: cfg.get('sessionOpenIn', 'auto'),
+        promptOpenIn: cfg.get('promptOpenIn', 'auto'),
       };
     }
   }
@@ -360,6 +361,14 @@ async function onMessage(m, context, scope) {
       }
       case 'sessions':
         await pickTaskSession(m.id);
+        break;
+      case 'prompts': {
+        const { ctx, task } = findTask();
+        if (ctx && task) await runPrompt(ws, ctx, task);
+        break;
+      }
+      case 'editPrompts':
+        await editPrompts(where, m.dir);
         break;
       case 'move': {
         const { ctx, task } = findTask();
@@ -832,6 +841,173 @@ async function openSession(ws, id, s) {
   const term = vscode.window.createTerminal({ name: `Claude · ${id}`, cwd: ws.folder });
   term.show();
   term.sendText(`claude --resume ${s.sessionId}`);
+}
+
+// ---------- шаблонні промпти колонок ----------
+
+/** Відкриває промпт задачі: нова розмова Claude Code з текстом у полі вводу, термінал або буфер обміну. */
+async function sendPrompt(ws, id, text) {
+  const mode = ws.promptOpenIn;
+  if (mode === 'clipboard') {
+    await vscode.env.clipboard.writeText(text);
+    vscode.window.showInformationMessage(`${id}: промпт скопійовано в буфер обміну.`);
+    return;
+  }
+  if (mode !== 'terminal') {
+    const cmds = await vscode.commands.getCommands(true);
+    if (cmds.includes('claude-vscode.editor.open')) {
+      log(`${id}: промпт → нова розмова Claude Code`);
+      // (sessionId, initialPrompt): без сесії — нова розмова; текст лягає в поле вводу, відправляє користувач
+      await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, text);
+      return;
+    }
+    if (mode === 'extension') vscode.window.showWarningMessage('Розширення Claude Code не знайдено — відкриваю промпт у терміналі.');
+  }
+  const shell = String(vscode.env.shell || '');
+  const kind = /pwsh|powershell/i.test(shell) ? 'powershell' : /cmd(\.exe)?$/i.test(shell) ? 'cmd' : 'posix';
+  log(`${id}: claude <промпт> у терміналі`);
+  const term = vscode.window.createTerminal({ name: `Claude · ${id}`, cwd: ws.folder });
+  term.show();
+  term.sendText(`claude ${core.shellArg(text, kind)}`);
+}
+
+/** ⚡ на картці: вибір промпта колонки задачі, файли за масками, відкриття в Claude Code. */
+async function runPrompt(ws, ctx, task) {
+  const stage = ctx.stages.find((s) => s.dir === task.stage);
+  const prompts = core.normalizePrompts(stage && stage.prompts);
+  const colName = stage ? stage.title || stage.dir : 'Без етапу';
+  if (!prompts.length) {
+    if (!stage) return vscode.window.showInformationMessage(`Задача ${task.id} поза колонками — промптів немає.`);
+    const go = await vscode.window.showInformationMessage(`У колонці «${colName}» немає промптів.`, 'Налаштувати');
+    if (go) await editPrompts(ctx.id, stage.dir);
+    return;
+  }
+  const CONFIG = '$(gear) Налаштувати промпти колонки…';
+  const pick = await vscode.window.showQuickPick(
+    [
+      ...prompts.map((p) => ({ label: core.promptLabel(p), detail: p.title ? p.text : p.text.length > 60 ? p.text : undefined, prompt: p })),
+      { label: '', kind: vscode.QuickPickItemKind.Separator },
+      { label: CONFIG, config: true },
+    ],
+    { title: `Промпт — задача ${task.id} (${colName})`, placeHolder: 'Вибраний промпт відкриється в Claude Code з файлами задачі', matchOnDetail: true },
+  );
+  if (!pick) return;
+  if (pick.config) return editPrompts(ctx.id, stage.dir);
+
+  const files = new Map();
+  for (const mask of core.promptMasks(pick.prompt.text)) {
+    const found = core.matchTaskFiles(task.dir, mask);
+    if (found.length <= 1) {
+      files.set(mask, found.map((f) => f.file));
+      continue;
+    }
+    const sel = await vscode.window.showQuickPick(
+      found.map((f, i) => ({ label: f.rel, description: fmtDate(new Date(f.mtime).toISOString()), picked: i === 0, file: f.file })),
+      { canPickMany: true, title: `[${mask}] — файли задачі ${task.id}`, placeHolder: 'Позначте файли для промпта (спершу найновіші); Esc — скасувати', ignoreFocusOut: true },
+    );
+    if (!sel) return;
+    files.set(mask, sel.map((x) => x.file));
+  }
+  const vars = {
+    number: task.id,
+    title: task.title || '',
+    stage: task.stage,
+    stageTitle: colName,
+    status: task.status || (stage && stage.status) || '',
+    taskDir: relPath(ws, task.dir),
+  };
+  const r = core.expandPrompt(pick.prompt.text, { vars, files, folder: ws.folder });
+  if (r.missing.length) {
+    const msg = `${task.id}: у каталозі задачі немає файлів за масками ${r.missing.map((x) => `[${x}]`).join(', ')} — вони лишились у тексті як є.`;
+    log(msg);
+    vscode.window.showWarningMessage(msg);
+  }
+  await sendPrompt(ws, task.id, r.text);
+}
+
+const NL = '\\n';
+const toLine = (s) => String(s).replace(/\r?\n/g, NL);
+const fromLine = (s) => String(s).split(NL).join('\n').trim();
+
+/** Діалог тексту і назви промпта. Повертає { title, text } або undefined (Esc). */
+async function promptDialog(colName, init = {}) {
+  const text = await vscode.window.showInputBox({
+    title: `Промпт колонки «${colName}» — текст`,
+    prompt:
+      'Файли задачі — [маска] або {маска} ([task.md], {*v*.zip}, [sql/*.sql]) → @шлях; підстановки {number} {title} {stage} ' +
+      `{stageTitle} {status} {taskDir}; новий рядок — ${NL}`,
+    value: toLine(init.text || ''),
+    ignoreFocusOut: true,
+    validateInput: (v) => (v.trim() ? null : 'Вкажіть текст'),
+  });
+  if (!text) return;
+  const title = await vscode.window.showInputBox({
+    title: `Промпт колонки «${colName}» — назва`,
+    prompt: 'Назва в списку промптів (порожньо — початок тексту)',
+    value: init.title || '',
+    ignoreFocusOut: true,
+  });
+  if (title === undefined) return;
+  return { title: title.trim(), text: fromLine(text) };
+}
+
+/** ⚡ у заголовку колонки: список промптів колонки — додати, змінити, переставити, видалити. */
+async function editPrompts(where, dir) {
+  const ws = requireWorkspace();
+  if (!ws) return;
+  for (;;) {
+    const ctx = boardCtx(ws, where);
+    const st = ctx && ctx.stages.find((s) => s.dir === dir);
+    if (!st) return;
+    const colName = st.title || st.dir;
+    const list = core.normalizePrompts(st.prompts);
+    const save = (next) => saveStages(ctx, core.setStagePrompts(ctx.stages, dir, next));
+    const pick = await vscode.window.showQuickPick(
+      [
+        ...list.map((p, i) => ({ label: `${i + 1}. ${core.promptLabel(p)}`, detail: toLine(p.text), index: i })),
+        { label: '', kind: vscode.QuickPickItemKind.Separator },
+        { label: '$(add) Новий промпт…', action: 'add' },
+        { label: '$(json) Відкрити settings.json', description: 'багаторядкові промпти зручніше правити там', action: 'json' },
+      ],
+      { title: `Промпти колонки «${colName}»`, placeHolder: 'Промпти викликаються кнопкою ⚡ на картках цієї колонки', matchOnDetail: true },
+    );
+    if (!pick) return;
+    if (pick.action === 'json') {
+      await vscode.commands.executeCommand(vscode.workspace.workspaceFile ? 'workbench.action.openFolderSettingsFile' : 'workbench.action.openWorkspaceSettingsFile');
+      return;
+    }
+    if (pick.action === 'add') {
+      const p = await promptDialog(colName);
+      if (p) await save([...list, p]);
+      continue;
+    }
+    const i = pick.index;
+    const act = await vscode.window.showQuickPick(
+      [
+        { label: '$(edit) Змінити', a: 'edit' },
+        { label: '$(arrow-up) Вище', a: 'up', hidden: i === 0 },
+        { label: '$(arrow-down) Нижче', a: 'down', hidden: i === list.length - 1 },
+        { label: '$(trash) Видалити', a: 'del' },
+      ].filter((x) => !x.hidden),
+      { title: `Промпт «${core.promptLabel(list[i])}»`, placeHolder: list[i].text },
+    );
+    if (!act) continue;
+    const next = [...list];
+    if (act.a === 'edit') {
+      const p = await promptDialog(colName, list[i]);
+      if (!p) continue;
+      next[i] = p;
+    } else if (act.a === 'up' || act.a === 'down') {
+      const j = act.a === 'up' ? i - 1 : i + 1;
+      [next[i], next[j]] = [next[j], next[i]];
+    } else {
+      const ok = await vscode.window.showWarningMessage(`Видалити промпт «${core.promptLabel(list[i])}» з колонки «${colName}»?`, { modal: true }, 'Видалити');
+      if (ok !== 'Видалити') continue;
+      next.splice(i, 1);
+    }
+    await save(next);
+    log(`${dir}: промптів ${next.length}`);
+  }
 }
 
 // ---------- налаштування ----------
