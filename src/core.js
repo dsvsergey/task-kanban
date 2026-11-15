@@ -999,13 +999,56 @@ function transitionsUsing(transitions, dir) {
 
 // ---------- переходи ----------
 
-function matchTransitions(transitions, from, to) {
+/**
+ * Дії переходу from → to у порядку налаштувань. stages — колонки дошки: дії `prompt` нормалізуються
+ * (normalizePromptAction), `use` шукається в промптах колонки призначення to.
+ */
+function matchTransitions(transitions, from, to, stages) {
+  const target = (stages || []).find((s) => s.dir === to);
   const actions = [];
   for (const t of transitions || []) {
     const f = t.from || '*';
-    if ((f === '*' || f === from) && (t.to === '*' || t.to === to)) actions.push(...(t.actions || []));
+    if (!((f === '*' || f === from) && (t.to === '*' || t.to === to))) continue;
+    for (const a of t.actions || []) actions.push(a && a.type === 'prompt' ? normalizePromptAction(a, target) : a);
   }
   return actions;
+}
+
+const PROMPT_RUNS = ['pick', 'each', 'join'];
+
+/**
+ * Дія переходу `prompt`: { type: 'prompt', prompts: [{ title, text }], run, errors }.
+ * Елемент prompts — { title?, text } (як у колонці) або { use: '<назва промпта колонки>', title? } — пошук за
+ * назвою (без урахування регістру) у промптах колонки stage. run: pick (за замовчуванням) | each | join.
+ * Помилки (не знайдено use, порожній текст, невідомий run, немає промптів) — у errors; решта промптів лишається.
+ */
+function normalizePromptAction(action, stage) {
+  const a = action && typeof action === 'object' ? action : {};
+  const errors = [];
+  let run = String(a.run == null ? '' : a.run).trim().toLowerCase() || 'pick';
+  if (!PROMPT_RUNS.includes(run)) {
+    errors.push(`невідомий run «${a.run}» (pick | each | join) — буде pick`);
+    run = 'pick';
+  }
+  const column = stage ? `«${stage.title || stage.dir}»` : 'призначення';
+  const own = normalizePrompts(stage && stage.prompts);
+  const list = Array.isArray(a.prompts) ? a.prompts : a.prompts ? [a.prompts] : [];
+  const prompts = [];
+  list.forEach((p, i) => {
+    if (typeof p === 'string') p = { text: p };
+    if (!p || typeof p !== 'object') return errors.push(`промпт ${i + 1}: очікується { title, text } або { use }`);
+    const use = String(p.use == null ? '' : p.use).trim();
+    if (use) {
+      const found = own.find((x) => x.title.toLowerCase() === use.toLowerCase());
+      if (!found) return errors.push(`промпт «${use}» не знайдено в колонці ${column}`);
+      return prompts.push({ title: String(p.title || '').trim() || found.title, text: found.text });
+    }
+    const [n] = normalizePrompts([p]);
+    if (n) prompts.push(n);
+    else errors.push(`промпт ${i + 1}: немає тексту (text) чи посилання (use)`);
+  });
+  if (!list.length) errors.push('немає промптів (prompts)');
+  return { type: 'prompt', prompts, run, errors };
 }
 
 function fill(template, vars) {
@@ -1473,6 +1516,8 @@ module.exports = {
   removeStage,
   transitionsUsing,
   matchTransitions,
+  normalizePromptAction,
+  PROMPT_RUNS,
   fill,
   missingFiles,
   git,

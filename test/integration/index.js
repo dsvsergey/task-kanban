@@ -57,6 +57,15 @@ exports.run = async function () {
     const saved = cfg().get('stages').find((s) => s.dir === '3_work');
     check(saved && saved.prompts && saved.prompts[0].text === 'Виконайте [task.md]', 'промпти колонки зберігаються в stages');
     await cfg().update('stages', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+    const promptTr = [{ from: '*', to: '3_work', actions: [{ type: 'prompt', prompts: [{ use: 'Виконати' }, { text: 'x' }], run: 'each' }] }];
+    await cfg().update('transitions', promptTr, vscode.ConfigurationTarget.WorkspaceFolder);
+    const tr = cfg().get('transitions');
+    check(tr.length === 1 && tr[0].actions[0].type === 'prompt' && tr[0].actions[0].run === 'each', 'перехід prompt зберігається в налаштуваннях папки');
+    await cfg().update('transitions', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+    await cfg().update('projects', [{ id: 'p', tasksDir: 'P/Tasks', transitions: promptTr }], vscode.ConfigurationTarget.WorkspaceFolder);
+    const pr = cfg().get('projects');
+    check(pr[0].transitions[0].actions[0].prompts[0].use === 'Виконати', 'перехід prompt зберігається в transitions проекту');
+    await cfg().update('projects', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
     await cfg().update('subtasksHeading', 'Subtasks', vscode.ConfigurationTarget.WorkspaceFolder);
     check(cfg().get('subtasksHeading') === 'Subtasks', 'запис subtasksHeading у налаштування папки (scope: resource)');
     await cfg().update('subtasksHeading', undefined, vscode.ConfigurationTarget.WorkspaceFolder);

@@ -744,3 +744,57 @@ test('промпти колонки: маски, підстановки, пос�
   assert.equal(core.shellArg('say "hi"', 'cmd'), '"say ""hi"""');
   assert.equal(core.shellArg("it's", 'posix'), "'it'\\''s'");
 });
+
+test('перехід prompt: нормалізація, use з колонки призначення, run', () => {
+  const stages = core.setStagePrompts(STAGES, '4_testing', [
+    { title: 'Декомпозиція таски', text: 'Розбийте {task.md}' },
+    { title: 'Перевірка', text: 'Перевірте {number}' },
+  ]);
+  const tr = [
+    { from: '*', to: '4_testing', actions: [{ type: 'check', files: ['path.sql'] }] },
+    {
+      to: '*',
+      actions: [
+        { type: 'commit', name: 'X' },
+        { type: 'prompt', prompts: [{ use: 'декомпозиція ТАСКИ' }, { title: ' Свій ', text: ' Зробіть {dir} ' }, { use: 'Немає' }] },
+      ],
+    },
+  ];
+  const acts = core.matchTransitions(tr, '3_work', '4_testing', stages);
+  assert.deepEqual(acts.map((a) => a.type), ['check', 'commit', 'prompt'], 'prompt поряд із check/commit, у порядку налаштувань');
+  const p = acts[2];
+  assert.equal(p.run, 'pick', 'run за замовчуванням');
+  assert.deepEqual(p.prompts, [
+    { title: 'Декомпозиція таски', text: 'Розбийте {task.md}' },
+    { title: 'Свій', text: 'Зробіть {dir}' },
+  ]);
+  assert.equal(p.errors.length, 1);
+  assert.match(p.errors[0], /«Немає» не знайдено в колонці «На тестуванні»/);
+  assert.equal(tr[1].actions[1].run, undefined, 'налаштування не змінюються');
+
+  // use шукається в колонці призначення, а не в інших
+  const other = core.matchTransitions(tr, '4_testing', '3_work', stages)[1];
+  assert.deepEqual(other.prompts, [{ title: 'Свій', text: 'Зробіть {dir}' }]);
+  assert.equal(other.errors.length, 2);
+  // без колонок — use не розвʼязується, але дія є; старий виклик без stages працює
+  assert.equal(core.matchTransitions(tr, '3_work', '4_testing').length, 3);
+  assert.equal(core.matchTransitions(tr, '3_work', '4_testing')[2].prompts.length, 1);
+
+  const target = stages.find((s) => s.dir === '4_testing');
+  assert.deepEqual(core.normalizePromptAction({ type: 'prompt', prompts: [{ use: 'Перевірка', title: 'Інша назва' }], run: ' EACH ' }, target), {
+    type: 'prompt',
+    prompts: [{ title: 'Інша назва', text: 'Перевірте {number}' }],
+    run: 'each',
+    errors: [],
+  });
+  assert.equal(core.normalizePromptAction({ type: 'prompt', prompts: ['просто текст'], run: 'join' }).prompts[0].text, 'просто текст');
+  const one = core.normalizePromptAction({ type: 'prompt', prompts: { text: 'один' } });
+  assert.deepEqual(one.prompts, [{ title: '', text: 'один' }], 'один обʼєкт замість масиву');
+
+  const bad = core.normalizePromptAction({ type: 'prompt', prompts: [{ text: ' ' }, 5], run: 'all' });
+  assert.equal(bad.run, 'pick');
+  assert.deepEqual(bad.prompts, []);
+  assert.equal(bad.errors.length, 3, 'невідомий run, порожній текст, не обʼєкт');
+  assert.deepEqual(core.normalizePromptAction({ type: 'prompt' }).errors, ['немає промптів (prompts)']);
+  assert.deepEqual(core.PROMPT_RUNS, ['pick', 'each', 'join']);
+});

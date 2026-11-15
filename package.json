@@ -210,7 +210,43 @@
               },
               "transitions": {
                 "type": "array",
-                "description": "Дії при перенесенні задач проекту (як taskKanban.transitions). Без них: проект у спільному каталозі — загальні переходи, у власному — жодних. Підстановка {tasksRoot} — каталог задач проекту."
+                "description": "Дії при перенесенні задач проекту (як taskKanban.transitions: check, commit, prompt). Без них: проект у спільному каталозі — загальні переходи, у власному — жодних. Підстановка {tasksRoot} — каталог задач проекту. prompt { use } шукає промпт у колонках проекту.",
+                "items": {
+                  "type": "object",
+                  "required": ["to", "actions"],
+                  "properties": {
+                    "from": { "type": "string", "default": "*" },
+                    "to": { "type": "string" },
+                    "actions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["type"],
+                        "properties": {
+                          "type": { "type": "string", "enum": ["check", "commit", "prompt"] },
+                          "files": { "type": "array", "items": { "type": "string" } },
+                          "repo": { "type": "string" },
+                          "name": { "type": "string" },
+                          "paths": { "type": "array", "items": { "type": "string" } },
+                          "sourceDir": { "type": "string" },
+                          "prompts": {
+                            "type": "array",
+                            "description": "prompt: { title, text } або { use: \"<назва промпта колонки призначення>\" }.",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "title": { "type": "string" },
+                                "text": { "type": "string" },
+                                "use": { "type": "string" }
+                              }
+                            }
+                          },
+                          "run": { "type": "string", "enum": ["pick", "each", "join"], "default": "pick" }
+                        }
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -262,7 +298,7 @@
           "scope": "resource",
           "type": "array",
           "default": [],
-          "markdownDescription": "Дії при перенесенні задачі. `from`/`to` — `dir` етапу або `*`. Дії: `check` (перед перенесенням: попередити, якщо в каталозі задачі немає файлів за масками `files`), `commit` (після перенесення: закомітити файли задачі в репозиторій `repo`; `paths` — git-маски відносно репозиторію, `sourceDir` — підкаталог задачі, файли з якого шукаються в репозиторії за іменем). Підстановки: `{number}`, `{stage}`, `${workspaceFolder}`.",
+          "markdownDescription": "Дії при перенесенні задачі. `from`/`to` — `dir` етапу або `*`. Дії: `check` (перед перенесенням: попередити, якщо в каталозі задачі немає файлів за масками `files`), `commit` (після перенесення: закомітити файли задачі в репозиторій `repo`; `paths` — git-маски відносно репозиторію, `sourceDir` — підкаталог задачі, файли з якого шукаються в репозиторії за іменем), `prompt` (після перенесення: шаблонні промпти `prompts` — `{ \"title\", \"text\" }` як у колонці або `{ \"use\": \"<назва промпта колонки призначення>\" }`; `run` — `pick` (вибрати, які запустити; за замовчуванням), `each` (кожен окремо), `join` (склеїти в один)). Підстановки: `{number}`, `{stage}`, `${workspaceFolder}`.",
           "items": {
             "type": "object",
             "required": [
@@ -289,8 +325,37 @@
                       "type": "string",
                       "enum": [
                         "check",
-                        "commit"
+                        "commit",
+                        "prompt"
+                      ],
+                      "enumDescriptions": [
+                        "До перенесення: попередити, якщо немає файлів за масками files",
+                        "Після перенесення: закомітити файли задачі в репозиторій repo",
+                        "Після перенесення: шаблонні промпти prompts (run: pick | each | join)"
                       ]
+                    },
+                    "prompts": {
+                      "type": "array",
+                      "description": "prompt: промпти — { title, text } (як у колонці; маски [task.md], підстановки {number}) або { use: \"<назва промпта колонки призначення>\" }.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "title": { "type": "string" },
+                          "text": { "type": "string" },
+                          "use": { "type": "string", "description": "Назва (title) промпта колонки призначення замість тексту." }
+                        }
+                      }
+                    },
+                    "run": {
+                      "type": "string",
+                      "enum": ["pick", "each", "join"],
+                      "enumDescriptions": [
+                        "Вибрати, які промпти запустити (за замовчуванням)",
+                        "Кожен промпт окремо",
+                        "Склеїти в один промпт"
+                      ],
+                      "default": "pick",
+                      "description": "prompt: як запускати кілька промптів."
                     },
                     "files": {
                       "type": "array",

@@ -413,7 +413,7 @@ async function move(ws, ctx, task, toDir) {
   if (busy || task.stage === toDir) return;
   const stage = ctx.stages.find((s) => s.dir === toDir);
   if (!stage) return;
-  const actions = core.matchTransitions(ctx.transitions, task.stage, toDir);
+  const actions = core.matchTransitions(ctx.transitions, task.stage, toDir, ctx.stages);
   const done = core.doneStages(ctx.stages);
   const rootTasks = ctx.rootTasks || ctx.tasks;
   const links = core.linkSubtasks(rootTasks);
@@ -462,6 +462,11 @@ async function move(ws, ctx, task, toDir) {
 
     const commits = actions.filter((x) => x.type === 'commit');
     if (commits.length) await runCommits(ws, ctx, res.task, stage, commits);
+
+    // помилки налаштування дій prompt — лише в лог, решта дій виконується
+    for (const a of actions.filter((x) => x.type === 'prompt')) {
+      for (const err of a.errors) log(`${task.id}: перехід → ${toDir}, prompt: ${err}`);
+    }
   } finally {
     setBusy(false);
   }
