@@ -234,7 +234,13 @@ function boardState(ws, m, id) {
   }));
   // куди можна перенести задачу каталогом: інші корені
   const moveTargets = m.boards.filter((b) => b.kind === 'project' && !core.samePath(b.root, ctx.root)).length;
-  return { type: 'state', stages: ctx.stages, tasks, project: projectView(ws, ctx), busy, moveTargets };
+  // промптів переходу в кожну колонку (точний to) — лічильник на кнопці ⇥ заголовка колонки
+  const transitionPrompts = {};
+  for (const s of ctx.stages) {
+    const n = core.transitionRules(ctx.transitions, s.dir).reduce((sum, r) => sum + r.prompts.length, 0);
+    if (n) transitionPrompts[s.dir] = n;
+  }
+  return { type: 'state', stages: ctx.stages, tasks, project: projectView(ws, ctx), busy, moveTargets, transitionPrompts };
 }
 
 const RECENT = 4;
@@ -369,6 +375,9 @@ async function onMessage(m, context, scope) {
       }
       case 'editPrompts':
         await editPrompts(where, m.dir);
+        break;
+      case 'editTransitions':
+        await editTransitions(where, m.dir);
         break;
       case 'move': {
         const { ctx, task } = findTask();
@@ -994,10 +1003,10 @@ const NL = '\\n';
 const toLine = (s) => String(s).replace(/\r?\n/g, NL);
 const fromLine = (s) => String(s).split(NL).join('\n').trim();
 
-/** Діалог тексту і назви промпта. Повертає { title, text } або undefined (Esc). */
-async function promptDialog(colName, init = {}) {
+/** Діалог тексту і назви промпта (what — заголовок діалогу). Повертає { title, text } або undefined (Esc). */
+async function promptDialog(colName, init = {}, what = `Промпт колонки «${colName}»`) {
   const text = await vscode.window.showInputBox({
-    title: `Промпт колонки «${colName}» — текст`,
+    title: `${what} — текст`,
     prompt:
       'Файли задачі — [маска] або {маска} ([task.md], {*v*.zip}, [sql/*.sql]) → @шлях; підстановки {number} {title} {stage} ' +
       `{stageTitle} {status} {taskDir} {dir}; новий рядок — ${NL}`,
@@ -1007,7 +1016,7 @@ async function promptDialog(colName, init = {}) {
   });
   if (!text) return;
   const title = await vscode.window.showInputBox({
-    title: `Промпт колонки «${colName}» — назва`,
+    title: `${what} — назва`,
     prompt: 'Назва в списку промптів (порожньо — початок тексту)',
     value: init.title || '',
     ignoreFocusOut: true,
@@ -1032,15 +1041,14 @@ async function editPrompts(where, dir) {
         ...list.map((p, i) => ({ label: `${i + 1}. ${core.promptLabel(p)}`, detail: toLine(p.text), index: i })),
         { label: '', kind: vscode.QuickPickItemKind.Separator },
         { label: '$(add) Новий промпт…', action: 'add' },
+        { label: '$(debug-step-into) Тригери переходу в цю колонку…', description: 'промпти, що запускаються при перенесенні сюди', action: 'triggers' },
         { label: '$(json) Відкрити settings.json', description: 'багаторядкові промпти зручніше правити там', action: 'json' },
       ],
       { title: `Промпти колонки «${colName}»`, placeHolder: 'Промпти викликаються кнопкою ⚡ на картках цієї колонки', matchOnDetail: true },
     );
     if (!pick) return;
-    if (pick.action === 'json') {
-      await vscode.commands.executeCommand(vscode.workspace.workspaceFile ? 'workbench.action.openFolderSettingsFile' : 'workbench.action.openWorkspaceSettingsFile');
-      return;
-    }
+    if (pick.action === 'json') return openSettingsJson();
+    if (pick.action === 'triggers') return editTransitions(where, dir);
     if (pick.action === 'add') {
       const p = await promptDialog(colName);
       if (p) await save([...list, p]);
@@ -1072,6 +1080,255 @@ async function editPrompts(where, dir) {
     }
     await save(next);
     log(`${dir}: промптів ${next.length}`);
+  }
+}
+
+// ---------- тригери переходу (промпти дії prompt) ----------
+
+function openSettingsJson() {
+  return vscode.commands.executeCommand(
+    vscode.workspace.workspaceFile ? 'workbench.action.openFolderSettingsFile' : 'workbench.action.openWorkspaceSettingsFile',
+  );
+}
+
+const RUN_INFO = {
+  pick: { label: 'pick — вибір', detail: 'Після перенесення — список промптів з галочками: які запустити (Esc — жодного)' },
+  each: { label: 'each — кожен окремо', detail: 'Усі промпти запускаються одразу, кожен окремою розмовою / терміналом' },
+  join: { label: 'join — одним промптом', detail: 'Усі промпти склеюються в один (через «---») і запускаються однією розмовою' },
+};
+
+/**
+ * Куди пишуться переходи дошки: проект — якщо в нього вже є свої transitions або власний каталог задач
+ * (не спільний taskKanban.tasksDir); інакше — загальні taskKanban.transitions. Повертає id проекту або null.
+ */
+function transitionsOwner(ws, ctx) {
+  if (!ctx || ctx.kind !== 'project' || !ctx.project || !ctx.project.configured) return null;
+  const own = Array.isArray(ctx.project.transitions) || (ctx.ownRoot && !core.samePath(ctx.root, ws.tasksRoot));
+  return own ? ctx.project.id : null;
+}
+
+/** Записує переходи дошки (transitionsOwner): у transitions проекту або в taskKanban.transitions. */
+async function saveTransitions(ctx, transitions) {
+  const ws = workspace();
+  if (!ws) return;
+  const owner = transitionsOwner(ws, ctx);
+  if (owner) {
+    await saveProjects(
+      ws.projects.map((p) => (p.id === owner ? { ...p, transitions } : p)),
+      false,
+    );
+    log(`${owner}: переходів ${transitions.length}`);
+  } else {
+    await saveSetting('transitions', transitions.length ? transitions : undefined);
+    log(`Переходи (taskKanban.transitions): ${transitions.length}`);
+    postState();
+  }
+}
+
+const fromName = (ctx, from) => {
+  if (from === '*') return 'будь-якої колонки';
+  const s = ctx.stages.find((x) => x.dir === from);
+  return s ? `«${s.title || s.dir}»` : `${from} (немає колонки)`;
+};
+
+/** Вибір колонки-джерела тригера: '*' або dir іншої колонки. used — from, для яких уже є тригер. */
+async function pickTransitionFrom(ctx, dir, { title, current, used = [] }) {
+  const mark = (f) => (f === current ? 'поточна' : used.includes(f) ? 'тригер уже є — промпти додадуться до нього' : '');
+  const pick = await vscode.window.showQuickPick(
+    [
+      { label: '$(asterisk) Будь-яка колонка', description: ['*', mark('*')].filter(Boolean).join(' · '), from: '*' },
+      ...ctx.stages
+        .filter((s) => s.dir !== dir)
+        .map((s) => ({ label: s.title || s.dir, description: [s.dir, mark(s.dir)].filter(Boolean).join(' · '), from: s.dir })),
+    ],
+    { title, placeHolder: 'Звідки переноситься задача (from)' },
+  );
+  return pick && pick.from;
+}
+
+/**
+ * Новий / змінений елемент prompts переходу: свій текст або { use } — промпт колонки призначення st за назвою
+ * (текст береться з колонки під час запуску). init — поточний елемент.
+ */
+async function transitionPromptDialog(st, init) {
+  const colName = st.title || st.dir;
+  const own = core.normalizePrompts(st.prompts);
+  const titled = own.filter((p) => p.title);
+  const pick = await vscode.window.showQuickPick(
+    [
+      { label: '$(edit) Свій текст…', description: init && !init.use ? 'поточний' : '', own: true },
+      { label: `Промпти колонки «${colName}»`, kind: vscode.QuickPickItemKind.Separator },
+      ...titled.map((p) => ({
+        label: `↪ ${p.title}`,
+        description: init && init.use && init.use.toLowerCase() === p.title.toLowerCase() ? 'поточний' : '',
+        detail: toLine(p.text),
+        use: p.title,
+      })),
+      ...(own.length > titled.length
+        ? [{ label: '$(info) Промпти колонки без назви сюди не потрапляють', description: 'use шукає промпт за назвою', info: true }]
+        : []),
+    ],
+    {
+      title: `Промпт тригера переходу в «${colName}»`,
+      placeHolder: titled.length ? 'Свій текст або посилання (use) на промпт колонки — текст береться з колонки при запуску' : 'Свій текст (у колонки немає промптів з назвою)',
+      matchOnDetail: true,
+    },
+  );
+  if (!pick || pick.info) return;
+  if (pick.use) return { use: pick.use };
+  const p = await promptDialog(colName, init && !init.use ? init : {}, `Тригер переходу в «${colName}»`);
+  return p && (p.title ? p : { text: p.text });
+}
+
+/** Кнопка ⇥ у заголовку колонки: тригери переходу в цю колонку — по одному на колонку-джерело (from). */
+async function editTransitions(where, dir) {
+  const ws = requireWorkspace();
+  if (!ws) return;
+  for (;;) {
+    const ctx = boardCtx(ws, where);
+    const st = ctx && ctx.stages.find((s) => s.dir === dir);
+    if (!st) return;
+    const colName = st.title || st.dir;
+    const rules = core.transitionRules(ctx.transitions, dir);
+    const anyTo = (ctx.transitions || []).filter((t) => t && t.to === '*').length;
+    const owner = transitionsOwner(ws, ctx);
+    const pick = await vscode.window.showQuickPick(
+      [
+        ...rules.map((r) => ({
+          label: `$(debug-step-into) з ${fromName(ctx, r.from)}`,
+          description: [
+            r.prompts.length ? `промптів ${r.prompts.length} · ${r.run}` : 'без промптів',
+            r.others.length ? `також: ${r.others.join(', ')}` : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+          detail: r.prompts.map((p) => core.transitionPromptLabel(p)).join(' · ') || undefined,
+          from: r.from,
+        })),
+        { label: '', kind: vscode.QuickPickItemKind.Separator },
+        { label: '$(add) Новий тригер…', description: 'вибрати колонку-джерело', action: 'add' },
+        ...(anyTo ? [{ label: `$(info) Переходів у будь-яку колонку (to: *): ${anyTo}`, description: 'правляться в settings.json', action: 'json' }] : []),
+        { label: '$(json) Відкрити settings.json', description: 'дії check, commit і багаторядкові промпти', action: 'json' },
+      ],
+      {
+        title: `Тригери переходу в колонку «${colName}»`,
+        placeHolder: `Промпти, що запускаються при перенесенні задачі сюди; запис — ${owner ? `transitions проекту ${owner}` : 'taskKanban.transitions'}`,
+        matchOnDetail: true,
+      },
+    );
+    if (!pick) return;
+    if (pick.action === 'json') return openSettingsJson();
+    let from = pick.from;
+    if (pick.action === 'add') {
+      from = await pickTransitionFrom(ctx, dir, { title: `Новий тригер переходу в «${colName}»`, used: rules.map((r) => r.from) });
+      if (!from) continue;
+    }
+    await editTransitionRule(where, dir, from);
+  }
+}
+
+/** Промпти одного тригера from → dir: додати, змінити, вище/нижче, видалити; режим run; колонка-джерело. */
+async function editTransitionRule(where, dir, from) {
+  const ws = requireWorkspace();
+  if (!ws) return;
+  for (;;) {
+    const ctx = boardCtx(ws, where);
+    const st = ctx && ctx.stages.find((s) => s.dir === dir);
+    if (!st) return;
+    const colName = st.title || st.dir;
+    const rule = core.transitionRules(ctx.transitions, dir).find((r) => r.from === from) || { from, prompts: [], run: 'pick', others: [], extraPrompts: 0 };
+    const list = rule.prompts;
+    const save = (prompts, run = rule.run) => saveTransitions(ctx, core.setTransitionPrompts(ctx.transitions, from, dir, { prompts, run }));
+    const name = `${fromName(ctx, from)} → «${colName}»`;
+    const promptDetail = (p) => {
+      if (!p.use) return toLine(p.text);
+      const found = core.normalizePrompts(st.prompts).find((x) => x.title.toLowerCase() === p.use.toLowerCase());
+      return found ? `промпт колонки: ${toLine(found.text)}` : `⚠ промпт «${p.use}» не знайдено в колонці «${colName}»`;
+    };
+    const pick = await vscode.window.showQuickPick(
+      [
+        ...list.map((p, i) => ({ label: `${i + 1}. ${core.transitionPromptLabel(p)}`, detail: promptDetail(p), index: i })),
+        { label: '', kind: vscode.QuickPickItemKind.Separator },
+        { label: '$(add) Додати промпт…', description: 'свій текст або промпт колонки', action: 'add' },
+        { label: `$(settings-gear) Режим запуску: ${RUN_INFO[rule.run].label}`, detail: RUN_INFO[rule.run].detail, action: 'run' },
+        { label: '$(arrow-swap) Змінити колонку-джерело…', description: from === '*' ? '* — будь-яка' : from, action: 'from', hidden: !list.length },
+        { label: '$(trash) Видалити промпти тригера', action: 'clear', hidden: !list.length },
+        ...(rule.extraPrompts ? [{ label: `$(info) Ще дій prompt цього переходу: ${rule.extraPrompts}`, description: 'правляться в settings.json', action: 'json' }] : []),
+      ].filter((x) => !x.hidden),
+      {
+        title: `Тригер ${name}`,
+        placeHolder: rule.others.length ? `Інші дії переходу (${rule.others.join(', ')}) не змінюються` : 'Промпти запускаються після перенесення задачі',
+        matchOnDetail: true,
+      },
+    );
+    if (!pick) return;
+    if (pick.action === 'json') return openSettingsJson();
+    if (pick.action === 'add') {
+      const p = await transitionPromptDialog(st);
+      if (p) await save([...list, p]);
+      continue;
+    }
+    if (pick.action === 'run') {
+      const r = await vscode.window.showQuickPick(
+        core.PROMPT_RUNS.map((k) => ({ label: RUN_INFO[k].label, description: k === rule.run ? 'поточний' : '', detail: RUN_INFO[k].detail, run: k })),
+        { title: `Режим запуску — тригер ${name}` },
+      );
+      if (r && r.run !== rule.run) {
+        if (list.length) await save(list, r.run);
+        else vscode.window.showInformationMessage('Режим запишеться разом з першим промптом тригера.');
+      }
+      continue;
+    }
+    if (pick.action === 'from') {
+      const rules = core.transitionRules(ctx.transitions, dir);
+      const to = await pickTransitionFrom(ctx, dir, {
+        title: `Колонка-джерело — тригер ${name}`,
+        current: from,
+        used: rules.filter((r) => r.prompts.length).map((r) => r.from),
+      });
+      if (!to || to === from) continue;
+      const target = rules.find((r) => r.from === to);
+      let next = core.setTransitionPrompts(ctx.transitions, from, dir, { prompts: [] });
+      next = core.setTransitionPrompts(next, to, dir, { prompts: [...(target ? target.prompts : []), ...list], run: rule.run });
+      await saveTransitions(ctx, next);
+      log(`${dir}: промпти тригера ${from} → ${to}`);
+      from = to;
+      continue;
+    }
+    if (pick.action === 'clear') {
+      const ok = await vscode.window.showWarningMessage(
+        `Видалити промпти тригера ${name}?${rule.others.length ? ` Інші дії переходу (${rule.others.join(', ')}) лишаться.` : ''}`,
+        { modal: true },
+        'Видалити',
+      );
+      if (ok === 'Видалити') await save([]);
+      continue;
+    }
+    const i = pick.index;
+    const act = await vscode.window.showQuickPick(
+      [
+        { label: '$(edit) Змінити', a: 'edit' },
+        { label: '$(arrow-up) Вище', a: 'up', hidden: i === 0 },
+        { label: '$(arrow-down) Нижче', a: 'down', hidden: i === list.length - 1 },
+        { label: '$(trash) Видалити', a: 'del' },
+      ].filter((x) => !x.hidden),
+      { title: `Промпт «${core.transitionPromptLabel(list[i])}»`, placeHolder: promptDetail(list[i]) },
+    );
+    if (!act) continue;
+    const next = [...list];
+    if (act.a === 'edit') {
+      const p = await transitionPromptDialog(st, list[i]);
+      if (!p) continue;
+      next[i] = p;
+    } else if (act.a === 'up' || act.a === 'down') {
+      const j = act.a === 'up' ? i - 1 : i + 1;
+      [next[i], next[j]] = [next[j], next[i]];
+    } else {
+      const ok = await vscode.window.showWarningMessage(`Видалити промпт «${core.transitionPromptLabel(list[i])}» з тригера ${name}?`, { modal: true }, 'Видалити');
+      if (ok !== 'Видалити') continue;
+      next.splice(i, 1);
+    }
+    await save(next);
   }
 }
 
@@ -1699,5 +1956,5 @@ function activate(context) {
 
 function deactivate() {}
 
-// buildPrompt, move, workspace, model — для інтеграційного тесту
-module.exports = { activate, deactivate, buildPrompt, move, workspace, model };
+// buildPrompt, move, workspace, model, boardCtx, тригери переходу, core — для інтеграційного тесту
+module.exports = { activate, deactivate, buildPrompt, move, workspace, model, boardCtx, transitionsOwner, saveTransitions, core };

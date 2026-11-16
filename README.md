@@ -248,7 +248,8 @@ its own `task.md` and column, dragged on its own. The link is kept by wiki links
   has no prompts (click to set them up).
 - Click a column header to collapse/expand it.
 - **Columns** (hover a column header): ◀ ▶ move it, ✎ rename it and change its `task.md` status, ⚡ edit the column prompts
-  (add, change, reorder, delete; multi-line ones are easier to edit in `settings.json`), ＋ add a
+  (add, change, reorder, delete; multi-line ones are easier to edit in `settings.json`), ⇥ edit the transition triggers
+  into the column (`prompt` actions, see Transitions below), ＋ add a
   column to the right, ✕ delete it (only an empty one; its folder is removed if nothing but `.gitkeep` is left).
   `+ Колонка` (+ Column) in the toolbar adds a column at a chosen position: title → folder (suggested from the
   title, e.g. «Архів» → `6_arkhiv`) → status. Changes are saved to `taskKanban.stages` in the project's
@@ -344,6 +345,15 @@ Projects with their own columns use the same field in the project's `stages` (`t
   `terminal` — `claude "<prompt>"` runs at once, `clipboard` — copied (several prompts — joined, the clipboard holds
   one). A failed prompt does not undo the move or the commit — only a message and a log line.
 - Moving a task to another project (card menu) is not a column transition: no `transitions` actions run.
+- **Transition triggers without `settings.json`**: ⇥ in a column header (or «Тригери переходу в цю колонку…» in the
+  ⚡ list) edits the `prompt` actions of transitions **into this column**, one trigger per source column (`from`: a
+  column or «any» = `*`). New trigger — pick the source; inside a trigger: add a prompt (own text or `use` — a
+  titled prompt of this column), change, move up/down, delete; the `run` mode; change the source column; delete the
+  trigger's prompts. Only the `prompt` action is written (the first one in the `from → to` transitions; none — it is
+  appended to the transition, or a new transition is created); `check`, `commit`, other fields and transitions stay
+  as they are, a transition left without actions is removed. Target: the project's `transitions` if it already has
+  them or has its own task folder, otherwise `taskKanban.transitions` (folder settings). `to: "*"` transitions and
+  further `prompt` actions of the same transition are only shown — edit them in `settings.json`.
 
 ## AI agents (Claude Code, OpenCode, Codex)
 

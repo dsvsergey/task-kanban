@@ -1081,7 +1081,7 @@ function transitionPromptLabel(p, max = 60) {
  * Правила переходу в колонку to (точний збіг to; from — dir або '*'), по одному на from — у порядку налаштувань.
  * { from, prompts (raw), run, hasPrompt, extraPrompts — ще дій prompt (UI їх не править), others: ['check', 'commit', …]
  * — інші дії цього from → to, count — переходів }.
- * Промпти — з першої дії prompt першого переходу from → to (так їх і пише setTransitionPrompts).
+ * Промпти — з першої дії prompt переходів from → to (так їх і пише setTransitionPrompts).
  */
 function transitionRules(transitions, to) {
   const byFrom = new Map();
@@ -1108,7 +1108,7 @@ function transitionRules(transitions, to) {
 }
 
 /**
- * Новий список переходів: у першій дії prompt першого переходу from → to — prompts і run; інші поля дії та інші
+ * Новий список переходів: у першій дії prompt переходів from → to — prompts і run; інші поля дії та інші
  * дії (check, commit…) і переходи не змінюються. Немає дії prompt — додається в кінець першого переходу from → to,
  * немає переходу — новий { from, to, actions }. Порожній prompts — дія prompt прибирається, а перехід без дій — теж.
  */
@@ -1117,7 +1117,10 @@ function setTransitionPrompts(transitions, from, to, { prompts, run } = {}) {
   const list = rawTransitionPrompts(prompts);
   const runV = PROMPT_RUNS.includes(run) ? run : 'pick';
   const out = (Array.isArray(transitions) ? transitions : []).map((t) => t);
-  const ti = out.findIndex((t) => t && (t.from || '*') === from && t.to === to);
+  const same = (t) => t && (t.from || '*') === from && t.to === to;
+  const hasPrompt = (t) => Array.isArray(t.actions) && t.actions.some((a) => a && a.type === 'prompt');
+  let ti = out.findIndex((t) => same(t) && hasPrompt(t));
+  if (ti < 0) ti = out.findIndex(same);
   if (ti < 0) {
     if (list.length) out.push({ from, to, actions: [{ type: 'prompt', run: runV, prompts: list }] });
     return out;

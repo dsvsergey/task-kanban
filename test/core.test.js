@@ -811,3 +811,55 @@ test('перехід prompt: нормалізація, use з колонки п�
   assert.deepEqual(core.normalizePromptAction({ type: 'prompt' }).errors, ['немає промптів (prompts)']);
   assert.deepEqual(core.PROMPT_RUNS, ['pick', 'each', 'join']);
 });
+
+test('налаштування промптів переходу: transitionRules / setTransitionPrompts не чіпають check і commit', () => {
+  const check = { type: 'check', files: ['task_*.zip'] };
+  const commit = { type: 'commit', name: 'UltraAdd', paths: ['Tasks/*/{number}/**'] };
+  const tr = [
+    { from: '*', to: '4_testing', actions: [check, commit] },
+    { to: '4_testing', actions: [{ type: 'prompt', prompts: ['текст', { use: 'Перевірка' }, { text: ' ' }, 7], run: 'JOIN', extra: 1 }, { type: 'prompt', prompts: ['друга дія'] }] },
+    { from: '3_work', to: '4_testing', actions: [{ type: 'prompt', run: 'bad', prompts: { title: 'Т', text: 'один' } }] },
+    { from: '1_new', to: '3_work', actions: [commit] },
+  ];
+  const rules = core.transitionRules(tr, '4_testing');
+  assert.deepEqual(rules.map((r) => r.from), ['*', '3_work'], 'from без значення — *, правило на кожен from');
+  assert.deepEqual(rules[0].prompts, [{ text: 'текст' }, { use: 'Перевірка' }]);
+  assert.equal(rules[0].run, 'join');
+  assert.deepEqual(rules[0].others, ['check', 'commit']);
+  assert.equal(rules[0].count, 2);
+  assert.equal(rules[0].extraPrompts, 1);
+  assert.equal(rules[1].run, 'pick', 'невідомий run — pick');
+  assert.deepEqual(rules[1].prompts, [{ title: 'Т', text: 'один' }]);
+  assert.deepEqual(core.transitionRules(tr, '5_done'), []);
+
+  // зміна промптів: інші поля дії, check/commit і порядок переходів — як були
+  const a = core.setTransitionPrompts(tr, '*', '4_testing', { prompts: [{ use: 'Перевірка', title: '' }, { title: 'Н', text: 'новий' }], run: 'each' });
+  assert.deepEqual(a[0], tr[0]);
+  assert.deepEqual(a[1].actions[0], { type: 'prompt', prompts: [{ use: 'Перевірка' }, { title: 'Н', text: 'новий' }], run: 'each', extra: 1 });
+  assert.deepEqual(a[1].actions[1], tr[1].actions[1]);
+  assert.equal(tr[1].actions[0].run, 'JOIN', 'вхідний список не змінюється');
+  assert.deepEqual(a.slice(2), tr.slice(2));
+
+  // перехід без prompt — дія дописується в кінець, check/commit лишаються
+  const b = core.setTransitionPrompts([tr[0]], '*', '4_testing', { prompts: ['x'] });
+  assert.deepEqual(b[0].actions, [check, commit, { type: 'prompt', run: 'pick', prompts: [{ text: 'x' }] }]);
+  assert.equal(b[0].from, '*');
+  // немає переходу — новий
+  const c = core.setTransitionPrompts(tr, '1_new', '4_testing', { prompts: [{ use: 'Перевірка' }], run: 'join' });
+  assert.equal(c.length, 5);
+  assert.deepEqual(c[4], { from: '1_new', to: '4_testing', actions: [{ type: 'prompt', run: 'join', prompts: [{ use: 'Перевірка' }] }] });
+  // порожній список — дія prompt прибирається; перехід без дій — теж
+  const d = core.setTransitionPrompts(b, '*', '4_testing', { prompts: [] });
+  assert.deepEqual(d, [{ from: '*', to: '4_testing', actions: [check, commit] }]);
+  assert.deepEqual(core.setTransitionPrompts(tr, '3_work', '4_testing', { prompts: [] }).map((t) => t.from), ['*', undefined, '1_new']);
+  assert.deepEqual(core.setTransitionPrompts(undefined, '1_new', '3_work', { prompts: [] }), []);
+
+  // записане читається тим самим matchTransitions
+  const stages = [{ dir: '4_testing', title: 'Тест', prompts: [{ title: 'Перевірка', text: 'Перевірте {number}' }] }];
+  const m = core.matchTransitions(c, '1_new', '4_testing', stages).filter((x) => x.type === 'prompt');
+  assert.deepEqual(m.map((x) => x.prompts.map((p) => p.text)), [['текст', 'Перевірте {number}'], ['друга дія'], ['Перевірте {number}']]);
+
+  assert.equal(core.transitionPromptLabel({ use: 'Перевірка' }), '↪ Перевірка');
+  assert.equal(core.transitionPromptLabel({ use: 'Перевірка', title: 'Моя' }), 'Моя (↪ Перевірка)');
+  assert.equal(core.transitionPromptLabel({ text: 'рядок 1\nрядок 2' }), 'рядок 1');
+});

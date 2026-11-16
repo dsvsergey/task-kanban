@@ -117,6 +117,33 @@ exports.run = async function () {
     await cfg().update('transitions', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
     await cfg().update('promptOpenIn', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
 
+    // UI тригерів переходу (00010.4): запис промптів у taskKanban.transitions / transitions проекту, check і commit цілі
+    const keep = [{ type: 'check', files: ['task_*.zip'] }, { type: 'commit', name: 'Add' }];
+    await cfg().update('transitions', [{ from: '*', to: '4_testing', actions: keep }], vscode.ConfigurationTarget.Workspace);
+    let ctxT = ext2.boardCtx(ext2.workspace(), '*');
+    check(ext2.transitionsOwner(ext2.workspace(), ctxT) === null, 'дошка без проекту — запис у taskKanban.transitions');
+    await ext2.saveTransitions(ctxT, ext2.core.setTransitionPrompts(ctxT.transitions, '*', '4_testing', { prompts: [{ use: 'Перевірка' }], run: 'each' }));
+    const gt = cfg().get('transitions');
+    check(
+      gt.length === 1 && gt[0].actions.length === 3 && gt[0].actions[1].name === 'Add' && gt[0].actions[2].prompts[0].use === 'Перевірка' && gt[0].actions[2].run === 'each',
+      `промпт тригера дописано до переходу, check/commit цілі — ${JSON.stringify(gt)}`,
+    );
+    ctxT = ext2.boardCtx(ext2.workspace(), '*');
+    await ext2.saveTransitions(ctxT, ext2.core.setTransitionPrompts(ctxT.transitions, '*', '4_testing', { prompts: [] }));
+    check(JSON.stringify(cfg().get('transitions')) === JSON.stringify([{ from: '*', to: '4_testing', actions: keep }]), 'видалення промптів тригера лишає check/commit');
+    await cfg().update('transitions', undefined, vscode.ConfigurationTarget.Workspace);
+    await cfg().update('projects', [{ id: 'tp', title: 'TP', tasksDir: '../tp/Tasks' }], vscode.ConfigurationTarget.Workspace);
+    fs.mkdirSync(path.join(folder.uri.fsPath, '..', 'tp', 'Tasks', '1_new'), { recursive: true });
+    ctxT = ext2.boardCtx(ext2.workspace(), 'tp');
+    check(ext2.transitionsOwner(ext2.workspace(), ctxT) === 'tp', 'проект з власним каталогом — запис у transitions проекту');
+    await ext2.saveTransitions(ctxT, ext2.core.setTransitionPrompts(ctxT.transitions, '1_new', '3_work', { prompts: [{ title: 'T', text: 'Зробіть {number}' }] }));
+    const tpp = cfg().get('projects')[0];
+    check(
+      tpp.transitions && tpp.transitions[0].from === '1_new' && tpp.transitions[0].actions[0].prompts[0].text === 'Зробіть {number}' && !cfg().get('transitions').length,
+      `тригер записано в transitions проекту — ${JSON.stringify(tpp)}`,
+    );
+    await cfg().update('projects', undefined, vscode.ConfigurationTarget.Workspace);
+
     const projects = [
       { id: 'demo', title: 'Demo', aliases: ['demo-code'], color: 'green' },
       { id: 'own', title: 'Own', tasksDir: '../own/Tasks', stages: [{ dir: 'todo', title: 'To do' }] },

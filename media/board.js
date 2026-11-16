@@ -271,6 +271,8 @@
     const st = state.stages[idx];
     const n = st && Array.isArray(st.prompts) ? st.prompts.length : 0;
     btn('⚡', `Промпти колонки${n ? ` (${n})` : ''} — викликаються ⚡ на картках`, { type: 'editPrompts', dir: col.dir });
+    const nt = (state.transitionPrompts && state.transitionPrompts[col.dir]) || 0;
+    btn('⇥', `Тригери переходу в цю колонку${nt ? ` (промптів ${nt})` : ''} — промпти при перенесенні задачі сюди`, { type: 'editTransitions', dir: col.dir });
     btn('＋', 'Додати колонку праворуч', { type: 'addColumn', after: idx });
     btn(
       '✕',
