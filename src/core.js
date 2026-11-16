@@ -1331,7 +1331,7 @@ async function commitFiles(repo, files, message, opts = {}) {
 
 // ---------- шаблонні промпти колонок ----------
 //
-// stage.prompts: [{ title, text }]. У тексті: {number} {title} {stage} {stageTitle} {status} {taskDir} і
+// stage.prompts: [{ title, text }]. У тексті: {number} {title} {stage} {stageTitle} {status} {taskDir} {dir} і
 // [маска] — файли каталогу задачі (`[task.md]`, `[*v*.zip]`, `[sql/*.sql]`), що стають посиланнями @шлях.
 // {маска} — те саме, що [маска]. [маска] — лише без пробілів і з «.», «*», «?» або «/»: `[x]`, `[ ]`, `[номер]` лишаються текстом;
 // `[[wiki]]` і `[текст](url)` не чіпаються.
@@ -1428,6 +1428,23 @@ function expandPrompt(text, { vars = {}, files = new Map(), folder } = {}) {
   return { text: filled, missing };
 }
 
+/**
+ * Підстановки промпта для задачі. stage — колонка задачі (або undefined). Шляхи — відносно робочої області, з «/»:
+ * {taskDir} — каталог задачі, {dir} — каталог її колонки (батьківський каталог задачі).
+ */
+function promptVars(task, stage, folder) {
+  const rel = (p) => (folder ? path.relative(folder, p) || '.' : p).split(path.sep).join('/');
+  return {
+    number: task.id,
+    title: task.title || '',
+    stage: task.stage,
+    stageTitle: stage ? stage.title || stage.dir : 'Без етапу',
+    status: task.status || (stage && stage.status) || '',
+    taskDir: rel(task.dir),
+    dir: rel(path.dirname(task.dir)),
+  };
+}
+
 /** Колонки з новим списком промптів колонки dir (порожній — прибрати). */
 function setStagePrompts(stages, dir, prompts) {
   const list = normalizePrompts(prompts).map((p) => (p.title ? p : { text: p.text }));
@@ -1455,6 +1472,7 @@ module.exports = {
   matchTaskFiles,
   fileRef,
   expandPrompt,
+  promptVars,
   setStagePrompts,
   shellArg,
   findTaskFile,

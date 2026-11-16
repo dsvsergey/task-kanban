@@ -80,6 +80,21 @@ exports.run = async function () {
     const doc = await vscode.workspace.openTextDocument(parentFile);
     const links = (await vscode.commands.executeCommand('vscode.executeLinkProvider', doc.uri)) || [];
     check(links.some((l) => l.target && l.target.fsPath.toLowerCase().endsWith(path.join('7.1', 'task.md').toLowerCase())), `[[7.1]] — посилання на task.md підзадачі (${links.length})`);
+    // buildPrompt без діалогів (автозапуск промптів переходу): {dir}, кілька збігів — перший, маски без файлів лишаються
+    const { buildPrompt } = require(path.join(ext.extensionPath, 'extension.js'));
+    const t7 = path.join(tasksDir, '1_new', '7');
+    fs.mkdirSync(path.join(t7, 'orig'), { recursive: true });
+    fs.writeFileSync(path.join(t7, 'orig', 'task.md'), 'old', 'utf8');
+    const bp = await buildPrompt(
+      { folder: folder.uri.fsPath },
+      { stages: defaults },
+      { id: '7', title: 'Сім', stage: '1_new', dir: t7 },
+      { text: 'Задача {number} ({stageTitle}) [task.md] [*.zip] → {dir}/{number}.2/' },
+      { ask: false },
+    );
+    check(bp && bp.text === 'Задача 7 (Нове) @Tasks/1_new/7/task.md [*.zip] → Tasks/1_new/7.2/', `buildPrompt ask:false — ${bp && bp.text}`);
+    check(bp && bp.missing.join() === '*.zip', 'buildPrompt: маска без файлів у missing');
+
     const projects = [
       { id: 'demo', title: 'Demo', aliases: ['demo-code'], color: 'green' },
       { id: 'own', title: 'Own', tasksDir: '../own/Tasks', stages: [{ dir: 'todo', title: 'To do' }] },

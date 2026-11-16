@@ -898,12 +898,31 @@ async function runPrompt(ws, ctx, task) {
   );
   if (!pick) return;
   if (pick.config) return editPrompts(ctx.id, stage.dir);
+  const r = await buildPrompt(ws, ctx, task, pick.prompt, { ask: true });
+  if (r) await sendPrompt(ws, task.id, r.text);
+}
 
+/**
+ * Готовий текст промпта задачі: підстановки ({number} … {taskDir} {dir}) і маски файлів → @шлях.
+ * ask: true — кілька збігів маски: вибір файлів (Esc — undefined); маски без файлів — попередження.
+ * ask: false — без діалогів (автозапуск): кілька збігів — перший за сортуванням matchTaskFiles (найновіший у
+ * найближчому до кореня задачі каталозі — той, що ⚡ позначає за замовчуванням; `orig/task.md` не переможе
+ * `task.md`), маски без файлів — лише в лог.
+ * Повертає { text, missing } або undefined (скасовано).
+ */
+async function buildPrompt(ws, ctx, task, prompt, { ask = true } = {}) {
+  const stage = ctx.stages.find((s) => s.dir === task.stage);
   const files = new Map();
-  for (const mask of core.promptMasks(pick.prompt.text)) {
+  for (const mask of core.promptMasks(prompt.text)) {
     const found = core.matchTaskFiles(task.dir, mask);
     if (found.length <= 1) {
       files.set(mask, found.map((f) => f.file));
+      continue;
+    }
+    if (!ask) {
+      const f = found[0];
+      log(`${task.id}: [${mask}] — збігів ${found.length}, взято ${f.rel}`);
+      files.set(mask, [f.file]);
       continue;
     }
     const sel = await vscode.window.showQuickPick(
@@ -913,21 +932,13 @@ async function runPrompt(ws, ctx, task) {
     if (!sel) return;
     files.set(mask, sel.map((x) => x.file));
   }
-  const vars = {
-    number: task.id,
-    title: task.title || '',
-    stage: task.stage,
-    stageTitle: colName,
-    status: task.status || (stage && stage.status) || '',
-    taskDir: relPath(ws, task.dir),
-  };
-  const r = core.expandPrompt(pick.prompt.text, { vars, files, folder: ws.folder });
+  const r = core.expandPrompt(prompt.text, { vars: core.promptVars(task, stage, ws.folder), files, folder: ws.folder });
   if (r.missing.length) {
     const msg = `${task.id}: у каталозі задачі немає файлів за масками ${r.missing.map((x) => `[${x}]`).join(', ')} — вони лишились у тексті як є.`;
     log(msg);
-    vscode.window.showWarningMessage(msg);
+    if (ask) vscode.window.showWarningMessage(msg);
   }
-  await sendPrompt(ws, task.id, r.text);
+  return r;
 }
 
 const NL = '\\n';
@@ -940,7 +951,7 @@ async function promptDialog(colName, init = {}) {
     title: `Промпт колонки «${colName}» — текст`,
     prompt:
       'Файли задачі — [маска] або {маска} ([task.md], {*v*.zip}, [sql/*.sql]) → @шлях; підстановки {number} {title} {stage} ' +
-      `{stageTitle} {status} {taskDir}; новий рядок — ${NL}`,
+      `{stageTitle} {status} {taskDir} {dir}; новий рядок — ${NL}`,
     value: toLine(init.text || ''),
     ignoreFocusOut: true,
     validateInput: (v) => (v.trim() ? null : 'Вкажіть текст'),
@@ -1639,4 +1650,5 @@ function activate(context) {
 
 function deactivate() {}
 
-module.exports = { activate, deactivate };
+// buildPrompt — для інтеграційного тесту
+module.exports = { activate, deactivate, buildPrompt };

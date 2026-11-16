@@ -731,6 +731,13 @@ test('промпти колонки: маски, підстановки, пос�
 
   const two = core.expandPrompt('[*.zip]', { files: new Map([['*.zip', [path.join(dir, 'a.zip'), path.join(dir, 'b c.zip')]]]), folder: ws });
   assert.equal(two.text, '@Tasks/3_work/00009/a.zip @"Tasks/3_work/00009/b c.zip"');
+  const vars = core.promptVars({ id: '00009', title: 'T', stage: '3_work', dir }, { dir: '3_work', title: 'В роботі', status: 'в роботі' }, ws);
+  assert.deepEqual(vars, { number: '00009', title: 'T', stage: '3_work', stageTitle: 'В роботі', status: 'в роботі', taskDir: 'Tasks/3_work/00009', dir: 'Tasks/3_work' });
+  assert.equal(core.expandPrompt('{dir}/{number}.1/', { vars }).text, 'Tasks/3_work/00009.1/', '{dir} — каталог колонки');
+  assert.equal(core.promptVars({ id: '1', stage: '', dir: path.join(ws, 'Tasks', '1') }, undefined, ws).stageTitle, 'Без етапу');
+  const oldest = new Date(Date.now() - 120000);
+  fs.utimesSync(path.join(dir, 'task.md'), oldest, oldest);
+  assert.equal(core.matchTaskFiles(dir, 'task.md')[0].rel, 'task.md', 'автовибір (перший): корінь задачі, навіть старіший за orig/');
   const outside = core.fileRef(path.join(os.tmpdir(), 'x.md'), ws);
   assert.ok(outside.startsWith('@') && path.isAbsolute(outside.slice(1)), 'поза робочою областю — абсолютний шлях');
 

@@ -243,7 +243,7 @@ its own `task.md` and column, dragged on its own. The link is kept by wiki links
   (or in curly braces: `{task.md}`, `{*.zip}`) (without «/» —
   by file name in all subfolders, the task root first; several matches — you choose, newest first). A mask has no
   spaces and contains «.», «*», «?» or «/», so `[x]`, `[number]`, `[[00003]]` stay text. Placeholders:
-  `{number}`, `{title}`, `{stage}`, `{stageTitle}`, `{status}`, `{taskDir}`. Without the Claude Code extension —
+  `{number}`, `{title}`, `{stage}`, `{stageTitle}`, `{status}`, `{taskDir}`, `{dir}` (the task's column folder). Without the Claude Code extension —
   a terminal with `claude "<prompt>"`, or just the clipboard (`taskKanban.promptOpenIn`). A faded ⚡ — the column
   has no prompts (click to set them up).
 - Click a column header to collapse/expand it.
