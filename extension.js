@@ -448,8 +448,8 @@ async function move(ws, ctx, task, toDir) {
   }
 
   setBusy(true);
+  let res;
   try {
-    let res;
     try {
       res = await core.moveTaskToRoot(task, ctx.root, stage);
     } catch (e) {
@@ -462,13 +462,59 @@ async function move(ws, ctx, task, toDir) {
 
     const commits = actions.filter((x) => x.type === 'commit');
     if (commits.length) await runCommits(ws, ctx, res.task, stage, commits);
-
-    // помилки налаштування дій prompt — лише в лог, решта дій виконується
-    for (const a of actions.filter((x) => x.type === 'prompt')) {
-      for (const err of a.errors) log(`${task.id}: перехід → ${toDir}, prompt: ${err}`);
-    }
   } finally {
     setBusy(false);
+  }
+
+  // промпти — останніми: агент бачить уже перенесену і закомічену задачу; дошку вони не блокують
+  const prompts = actions.filter((x) => x.type === 'prompt');
+  if (prompts.length) await runTransitionPrompts(ws, ctx, res.task, stage, prompts);
+}
+
+/**
+ * Дії `prompt` переходу (task — задача вже після перенесення). run: pick — вибір промптів галочками (Esc —
+ * жодного), вибрані — кожен окремо; each — кожен окремо; join — один склеєний промпт. Текст — buildPrompt без
+ * діалогів, відправлення — sendPrompt (taskKanban.promptOpenIn). У режимі clipboard кілька промптів склеюються
+ * (буфер один). Помилка промпта не відкочує перенесення і коміт — лише лог і повідомлення.
+ */
+async function runTransitionPrompts(ws, ctx, task, stage, promptActions) {
+  const to = stage.title || stage.dir;
+  for (const a of promptActions) {
+    // помилки налаштування — лише в лог, решта промптів виконується
+    for (const err of a.errors) log(`${task.id}: перехід → ${stage.dir}, prompt: ${err}`);
+    try {
+      let prompts = a.prompts;
+      if (!prompts.length) continue;
+      if (a.run === 'pick') {
+        const sel = await vscode.window.showQuickPick(
+          prompts.map((p) => ({ label: core.promptLabel(p), detail: p.title ? p.text : undefined, picked: true, prompt: p })),
+          {
+            canPickMany: true,
+            title: `Промпти переходу — задача ${task.id} → ${to}`,
+            placeHolder: 'Позначте промпти для запуску; Esc — жодного',
+            ignoreFocusOut: true,
+            matchOnDetail: true,
+          },
+        );
+        if (!sel || !sel.length) {
+          log(`${task.id}: промпти переходу → ${stage.dir} не запущено`);
+          continue;
+        }
+        prompts = sel.map((x) => x.prompt);
+      }
+      const texts = [];
+      for (const p of prompts) {
+        const r = await buildPrompt(ws, ctx, task, p, { ask: false });
+        if (r) texts.push(r.text);
+      }
+      const join = a.run === 'join' || (ws.promptOpenIn === 'clipboard' && texts.length > 1);
+      log(`${task.id}: промпти переходу → ${stage.dir}: ${prompts.map((p) => `«${core.promptLabel(p)}»`).join(', ')}${join && texts.length > 1 ? ' (одним промптом)' : ''}`);
+      for (const text of join ? [core.joinPrompts(texts)] : texts) await sendPrompt(ws, task.id, text);
+    } catch (e) {
+      const msg = `${task.id}: промпт переходу → ${to} не запущено: ${e.message}`;
+      log(msg);
+      vscode.window.showWarningMessage(msg);
+    }
   }
 }
 
@@ -497,7 +543,10 @@ function checkInParent(ws, rootTasks, parentId, id, isDone) {
   }
 }
 
-/** Перенесення каталогу задачі в інший проект (інший корінь задач). */
+/**
+ * Перенесення каталогу задачі в інший проект (інший корінь задач). Це не перехід між колонками: дії переходів
+ * (check, commit, prompt) не виконуються — ні проекту-джерела, ні проекту призначення.
+ */
 async function moveToProject(where, taskId) {
   const ws = requireWorkspace();
   if (!ws || busy) return;
@@ -1650,5 +1699,5 @@ function activate(context) {
 
 function deactivate() {}
 
-// buildPrompt — для інтеграційного тесту
-module.exports = { activate, deactivate, buildPrompt };
+// buildPrompt, move, workspace, model — для інтеграційного тесту
+module.exports = { activate, deactivate, buildPrompt, move, workspace, model };

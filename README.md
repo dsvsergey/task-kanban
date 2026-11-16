@@ -315,7 +315,10 @@ Projects with their own columns use the same field in the project's `stages` (`t
       { "type": "commit", "name": "UltraAdd",
         "paths": ["Tasks/*/{number}/**", "Obsidian/Tasks/{number}.md"] },
       // and the code: files from Tasks/<stage>/<number>/delphi/ are looked up in the repository by name
-      { "type": "commit", "name": "ultra-delphi", "repo": "../ultra-delphi", "sourceDir": "delphi" }
+      { "type": "commit", "name": "ultra-delphi", "repo": "../ultra-delphi", "sourceDir": "delphi" },
+      // last: prompts for the agent (it sees the task already moved and committed)
+      { "type": "prompt", "run": "pick",
+        "prompts": [ { "title": "Check", "text": "Check [task.md]: is everything ready for testing?" } ] }
     ]
   }
 ]
@@ -332,6 +335,15 @@ Projects with their own columns use the same field in the project's `stages` (`t
   (`git commit --amend --only`) instead of adding a new one. The file list title shows "new" or "amend <hash>".
   Another task's commit or a `push` in between means a new commit.
 - A folder that is not a git repository is skipped with a warning. Nothing is pushed.
+- `prompt` — prompts run after the move and the commits. `prompts` uses the column prompt format
+  (`{ title, text }`, masks and placeholders as for ⚡) or `{ "use": "<title>" }` — a prompt of the target column by
+  title. The text is built from the moved task without dialogs: several files match a mask — the first one ⚡ would
+  preselect; no files — the mask stays as is (logged). `run`: `pick` (default) — a checklist of prompts to run,
+  Esc runs none; `each` — every prompt separately; `join` — one prompt, parts separated by `---`. Prompts are sent
+  as `taskKanban.promptOpenIn` says: a new Claude Code conversation with the text in the input box (you press Enter),
+  `terminal` — `claude "<prompt>"` runs at once, `clipboard` — copied (several prompts — joined, the clipboard holds
+  one). A failed prompt does not undo the move or the commit — only a message and a log line.
+- Moving a task to another project (card menu) is not a column transition: no `transitions` actions run.
 
 ## AI agents (Claude Code, OpenCode, Codex)
 

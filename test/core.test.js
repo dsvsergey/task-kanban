@@ -752,6 +752,12 @@ test('промпти колонки: маски, підстановки, пос�
   assert.equal(core.shellArg("it's", 'posix'), "'it'\\''s'");
 });
 
+test('joinPrompts: склеювання промптів переходу', () => {
+  assert.equal(core.joinPrompts([' Перший ', '', 'Другий\nрядок']), 'Перший\n\n---\n\nДругий\nрядок');
+  assert.equal(core.joinPrompts(['Один']), 'Один');
+  assert.equal(core.joinPrompts([]), '');
+});
+
 test('перехід prompt: нормалізація, use з колонки призначення, run', () => {
   const stages = core.setStagePrompts(STAGES, '4_testing', [
     { title: 'Декомпозиція таски', text: 'Розбийте {task.md}' },

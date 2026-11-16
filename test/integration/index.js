@@ -95,6 +95,28 @@ exports.run = async function () {
     check(bp && bp.text === 'Задача 7 (Нове) @Tasks/1_new/7/task.md [*.zip] → Tasks/1_new/7.2/', `buildPrompt ask:false — ${bp && bp.text}`);
     check(bp && bp.missing.join() === '*.zip', 'buildPrompt: маска без файлів у missing');
 
+    // перенесення запускає промпти переходу (00010.3): clipboard, кілька промптів — одним текстом, з нового каталогу
+    const ext2 = require(path.join(ext.extensionPath, 'extension.js'));
+    await cfg().update('promptOpenIn', 'clipboard', vscode.ConfigurationTarget.WorkspaceFolder);
+    await cfg().update(
+      'transitions',
+      [{ from: '1_new', to: '2_queue', actions: [{ type: 'prompt', run: 'each', prompts: [{ text: 'Перевірте [task.md] ({stageTitle})' }, { text: 'Задача {number}' }, { use: 'Немає' }] }] }],
+      vscode.ConfigurationTarget.WorkspaceFolder,
+    );
+    fs.mkdirSync(path.join(tasksDir, '1_new', '8'), { recursive: true });
+    fs.writeFileSync(path.join(tasksDir, '1_new', '8', 'task.md'), '# Task 8\n\n- **Статус:** нове\n', 'utf8');
+    await vscode.env.clipboard.writeText('');
+    const ws8 = ext2.workspace();
+    const ctx8 = ext2.model(ws8).boards[0];
+    const t8 = ctx8 && ctx8.tasks.find((t) => t.id === '8');
+    check(!!t8, 'задача 8 на дошці');
+    if (t8) await ext2.move(ws8, ctx8, t8, '2_queue');
+    check(fs.existsSync(path.join(tasksDir, '2_queue', '8', 'task.md')), 'задача 8 перенесена в 2_queue');
+    const clip = await vscode.env.clipboard.readText();
+    check(clip === 'Перевірте @Tasks/2_queue/8/task.md (В черзі)\n\n---\n\nЗадача 8', `промпт переходу в буфері обміну — ${JSON.stringify(clip)}`);
+    await cfg().update('transitions', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+    await cfg().update('promptOpenIn', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+
     const projects = [
       { id: 'demo', title: 'Demo', aliases: ['demo-code'], color: 'green' },
       { id: 'own', title: 'Own', tasksDir: '../own/Tasks', stages: [{ dir: 'todo', title: 'To do' }] },

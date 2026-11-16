@@ -1363,6 +1363,11 @@ function promptLabel(p, max = 60) {
   return line.length > max ? line.slice(0, max - 1) + '…' : line;
 }
 
+/** Кілька готових текстів промптів одним промптом (дія переходу run: join, буфер обміну): через рядок «---». */
+function joinPrompts(texts) {
+  return texts.map((t) => String(t).trim()).filter(Boolean).join('\n\n---\n\n');
+}
+
 /** Маски файлів у тексті промпта — унікальні, у порядку появи. */
 function promptMasks(text) {
   const out = [];
@@ -1468,6 +1473,7 @@ function shellArg(s, kind = 'posix') {
 module.exports = {
   normalizePrompts,
   promptLabel,
+  joinPrompts,
   promptMasks,
   matchTaskFiles,
   fileRef,
