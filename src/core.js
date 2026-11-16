@@ -1051,6 +1051,90 @@ function normalizePromptAction(action, stage) {
   return { type: 'prompt', prompts, run, errors };
 }
 
+// ---------- налаштування промптів переходу (UI) ----------
+
+/**
+ * Елементи prompts дії переходу як є в налаштуваннях (без розвʼязання use): { title?, text } або { use, title? };
+ * рядок — { text }; порожні й некоректні відкидаються.
+ */
+function rawTransitionPrompts(list) {
+  const out = [];
+  for (let p of Array.isArray(list) ? list : list ? [list] : []) {
+    if (typeof p === 'string') p = { text: p };
+    if (!p || typeof p !== 'object') continue;
+    const title = String(p.title == null ? '' : p.title).trim();
+    const use = String(p.use == null ? '' : p.use).trim();
+    const text = String(p.text == null ? '' : p.text).trim();
+    if (use) out.push(title ? { use, title } : { use });
+    else if (text) out.push(title ? { title, text } : { text });
+  }
+  return out;
+}
+
+/** Назва елемента prompts переходу для списку: use — «↪ <назва промпта колонки>». */
+function transitionPromptLabel(p, max = 60) {
+  if (p && p.use) return p.title && p.title !== p.use ? `${p.title} (↪ ${p.use})` : `↪ ${p.use}`;
+  return promptLabel(p || {}, max);
+}
+
+/**
+ * Правила переходу в колонку to (точний збіг to; from — dir або '*'), по одному на from — у порядку налаштувань.
+ * { from, prompts (raw), run, hasPrompt, extraPrompts — ще дій prompt (UI їх не править), others: ['check', 'commit', …]
+ * — інші дії цього from → to, count — переходів }.
+ * Промпти — з першої дії prompt першого переходу from → to (так їх і пише setTransitionPrompts).
+ */
+function transitionRules(transitions, to) {
+  const byFrom = new Map();
+  for (const t of transitions || []) {
+    if (!t || t.to !== to) continue;
+    const from = t.from || '*';
+    let r = byFrom.get(from);
+    if (!r) byFrom.set(from, (r = { from, prompts: [], run: 'pick', hasPrompt: false, extraPrompts: 0, others: [], count: 0 }));
+    r.count++;
+    for (const a of Array.isArray(t.actions) ? t.actions : []) {
+      if (a && a.type === 'prompt') {
+        if (r.hasPrompt) {
+          r.extraPrompts++;
+          continue;
+        }
+        r.hasPrompt = true;
+        r.prompts = rawTransitionPrompts(a.prompts);
+        const run = String(a.run == null ? '' : a.run).trim().toLowerCase();
+        r.run = PROMPT_RUNS.includes(run) ? run : 'pick';
+      } else r.others.push(a && a.type ? String(a.type) : '?');
+    }
+  }
+  return [...byFrom.values()];
+}
+
+/**
+ * Новий список переходів: у першій дії prompt першого переходу from → to — prompts і run; інші поля дії та інші
+ * дії (check, commit…) і переходи не змінюються. Немає дії prompt — додається в кінець першого переходу from → to,
+ * немає переходу — новий { from, to, actions }. Порожній prompts — дія prompt прибирається, а перехід без дій — теж.
+ */
+function setTransitionPrompts(transitions, from, to, { prompts, run } = {}) {
+  from = from || '*';
+  const list = rawTransitionPrompts(prompts);
+  const runV = PROMPT_RUNS.includes(run) ? run : 'pick';
+  const out = (Array.isArray(transitions) ? transitions : []).map((t) => t);
+  const ti = out.findIndex((t) => t && (t.from || '*') === from && t.to === to);
+  if (ti < 0) {
+    if (list.length) out.push({ from, to, actions: [{ type: 'prompt', run: runV, prompts: list }] });
+    return out;
+  }
+  const t = { ...out[ti] };
+  const actions = Array.isArray(t.actions) ? [...t.actions] : [];
+  const ai = actions.findIndex((a) => a && a.type === 'prompt');
+  if (list.length) {
+    if (ai < 0) actions.push({ type: 'prompt', run: runV, prompts: list });
+    else actions[ai] = { ...actions[ai], run: runV, prompts: list };
+  } else if (ai >= 0) actions.splice(ai, 1);
+  t.actions = actions;
+  if (actions.length) out[ti] = t;
+  else out.splice(ti, 1);
+  return out;
+}
+
 function fill(template, vars) {
   return String(template).replace(/\$\{(\w+)\}|\{(\w+)\}/g, (m, a, b) => {
     const k = a || b;
@@ -1542,6 +1626,10 @@ module.exports = {
   matchTransitions,
   normalizePromptAction,
   PROMPT_RUNS,
+  rawTransitionPrompts,
+  transitionPromptLabel,
+  transitionRules,
+  setTransitionPrompts,
   fill,
   missingFiles,
   git,
