@@ -381,7 +381,16 @@ async function onMessage(m, context, scope) {
         break;
       case 'move': {
         const { ctx, task } = findTask();
-        if (ctx && task) await move(ws, ctx, task, m.to);
+        if (ctx && task) await move(ws, ctx, task, m.to, m.before);
+        break;
+      }
+      case 'reorder': {
+        // порядок карток у колонці (пріоритет): before — номер картки, перед якою поставити; null — у кінець
+        const { ctx, task } = findTask();
+        if (busy || !ctx || !task || !task.stage || task.stage !== m.dir) break;
+        const order = core.placeTask(path.join(ctx.root, task.stage), task.id, m.before || null);
+        log(`${task.id}: позиція в «${task.stage}» — ${order.indexOf(task.id) + 1} з ${order.length}`);
+        postState();
         break;
       }
       case 'newTask':
@@ -418,7 +427,8 @@ function lockedError(task, e, verb = 'перенесено') {
   return new Error(`${task.id} не ${verb}: ${e.message}${hint}`);
 }
 
-async function move(ws, ctx, task, toDir) {
+/** before — куди поставити картку в колонці призначення: номер наступної картки, null — у кінець, undefined — не чіпати порядок. */
+async function move(ws, ctx, task, toDir, before) {
   if (busy || task.stage === toDir) return;
   const stage = ctx.stages.find((s) => s.dir === toDir);
   if (!stage) return;
@@ -465,6 +475,13 @@ async function move(ws, ctx, task, toDir) {
       throw lockedError(task, e);
     }
     log(`${task.id}: ${task.stage || '(без етапу)'} → ${toDir}${res.statusUpdated ? ', статус оновлено' : ''}`);
+    if (before !== undefined) {
+      try {
+        core.placeTask(path.join(ctx.root, toDir), task.id, before || null);
+      } catch (e) {
+        log(`${task.id}: порядок у «${toDir}» не записано: ${e.message}`);
+      }
+    }
     warnStatus(task.id, stage, res);
     checkInParent(ws, rootTasks, links.get(task.id).parent, task.id, done.has(toDir));
     postState();
@@ -1956,5 +1973,5 @@ function activate(context) {
 
 function deactivate() {}
 
-// buildPrompt, move, workspace, model, boardCtx, тригери переходу, core — для інтеграційного тесту
-module.exports = { activate, deactivate, buildPrompt, move, workspace, model, boardCtx, transitionsOwner, saveTransitions, core };
+// onMessage, buildPrompt, move, workspace, model, boardCtx, тригери переходу, core — для інтеграційного тесту
+module.exports = { activate, deactivate, onMessage, buildPrompt, move, workspace, model, boardCtx, transitionsOwner, saveTransitions, core };

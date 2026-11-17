@@ -117,6 +117,18 @@ exports.run = async function () {
     await cfg().update('transitions', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
     await cfg().update('promptOpenIn', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
 
+    // порядок карток (00011): перенесення з місцем вставки і перестановка в колонці повідомленням дошки
+    fs.mkdirSync(path.join(tasksDir, '1_new', '9'), { recursive: true });
+    fs.writeFileSync(path.join(tasksDir, '1_new', '9', 'task.md'), '# Task 9\n\n- **Статус:** нове\n', 'utf8');
+    const ctx9 = ext2.model(ws8).boards[0];
+    const t9 = ctx9.tasks.find((t) => t.id === '9');
+    await ext2.move(ws8, ctx9, t9, '2_queue', '8');
+    const queue = () => ext2.model(ws8).boards[0].tasks.filter((t) => t.stage === '2_queue').map((t) => t.id).join(',');
+    check(queue() === '9,8', `перенесення перед карткою 8 — ${queue()}`);
+    await ext2.onMessage({ type: 'reorder', id: '9', dir: '2_queue', before: null }, null, ctx9.id);
+    check(queue() === '8,9', `перестановка в кінець колонки — ${queue()}`);
+    check(fs.readFileSync(path.join(tasksDir, '2_queue', '.order'), 'utf8') === '8\n9\n', 'порядок у Tasks/2_queue/.order');
+
     // UI тригерів переходу (00010.4): запис промптів у taskKanban.transitions / transitions проекту, check і commit цілі
     const keep = [{ type: 'check', files: ['task_*.zip'] }, { type: 'commit', name: 'Add' }];
     await cfg().update('transitions', [{ from: '*', to: '4_testing', actions: keep }], vscode.ConfigurationTarget.Workspace);

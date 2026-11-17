@@ -358,6 +358,7 @@ async function moveTaskToRoot(task, dstRoot, stage, retry) {
     fs.cpSync(task.dir, dst, { recursive: true });
     fs.rmSync(task.dir, { recursive: true, force: true });
   }
+  dropFromOrder(path.dirname(task.dir), task.id);
   let statusUpdated = false;
   const moved = readTask(dst, task.id, stage.dir);
   if (stage.status && moved.taskFile) {
@@ -776,8 +777,82 @@ function scanTasks(tasksRoot, stages, opts = {}) {
     // каталог етапу, якого немає в списку колонок: його задачі — «без етапу»
     for (const sub of listDirs(dir)) tasks.push(readTask(path.join(dir, sub), sub, '', opts));
   }
-  tasks.sort((a, b) => compareIds(a.id, b.id));
+  // у колонці — порядок з файла .order (пріоритет), решта — за номером
+  const rank = new Map();
+  for (const s of stages) readOrder(path.join(tasksRoot, s.dir)).forEach((id, i) => rank.set(`${s.dir}/${id}`, i));
+  const rankOf = (t) => (t.stage && rank.has(`${t.stage}/${t.id}`) ? rank.get(`${t.stage}/${t.id}`) : Infinity);
+  tasks.sort((a, b) => {
+    const ra = rankOf(a);
+    const rb = rankOf(b);
+    if (ra !== rb) return ra === Infinity ? 1 : rb === Infinity ? -1 : ra - rb;
+    return compareIds(a.id, b.id);
+  });
   return tasks;
+}
+
+// ---------- порядок карток у колонці (пріоритет) ----------
+// Файл <етап>/.order: номери задач колонки згори вниз, по одному в рядку. Задачі, яких у ньому немає, — після
+// перелічених, за номером. Номери задач, яких уже немає в колонці, ігноруються і прибираються при записі.
+
+const ORDER_FILE = '.order';
+
+/** Номери з файла порядку каталогу етапу (stageDir — повний шлях); немає файла — []. */
+function readOrder(stageDir) {
+  let text;
+  try {
+    text = fs.readFileSync(path.join(stageDir, ORDER_FILE), 'utf8');
+  } catch {
+    return [];
+  }
+  const seen = new Set();
+  const out = [];
+  for (const line of text.split(/\r?\n/)) {
+    const id = line.replace(/#.*/, '').trim();
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+/** Записує порядок; порожній список — файл видаляється. */
+function writeOrder(stageDir, ids) {
+  const file = path.join(stageDir, ORDER_FILE);
+  if (!ids.length) {
+    fs.rmSync(file, { force: true });
+    return;
+  }
+  fs.writeFileSync(file, ids.join('\n') + '\n', 'utf8');
+}
+
+/** Поточний порядок задач каталогу етапу: з файла (лише наявні), потім решта за номером. */
+function stageOrder(stageDir) {
+  const ids = listDirs(stageDir).sort(compareIds);
+  const present = new Set(ids);
+  const listed = readOrder(stageDir).filter((id) => present.has(id));
+  const inList = new Set(listed);
+  return listed.concat(ids.filter((id) => !inList.has(id)));
+}
+
+/**
+ * Ставить задачу id у колонці перед задачею before (null / немає в колонці — у кінець) і записує порядок
+ * усієї колонки. → новий порядок.
+ */
+function placeTask(stageDir, id, before) {
+  const ids = stageOrder(stageDir);
+  if (!ids.includes(id)) throw new Error(`Задачі ${id} немає в ${stageDir}`);
+  const rest = ids.filter((x) => x !== id);
+  const at = before ? rest.indexOf(before) : -1;
+  rest.splice(at < 0 ? rest.length : at, 0, id);
+  writeOrder(stageDir, rest);
+  return rest;
+}
+
+/** Прибирає номер з файла порядку каталогу (задача перенесена або видалена). */
+function dropFromOrder(stageDir, id) {
+  const ids = readOrder(stageDir);
+  if (ids.includes(id)) writeOrder(stageDir, ids.filter((x) => x !== id));
 }
 
 function findTask(tasksRoot, stages, id) {
@@ -825,6 +900,7 @@ async function deleteTaskDir(dir, retry) {
   const tmpDir = path.join(path.dirname(dir), `_deleting-${path.basename(dir)}-${Date.now()}`);
   await renameWithRetry(dir, tmpDir, retry);
   fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  dropFromOrder(path.dirname(dir), path.basename(dir));
 }
 
 async function moveTask(tasksRoot, stages, id, toDir, retry) {
@@ -839,6 +915,7 @@ async function moveTask(tasksRoot, stages, id, toDir, retry) {
   if (fs.existsSync(dst)) throw new Error(`Каталог ${dst} уже існує`);
   fs.mkdirSync(dstParent, { recursive: true });
   await renameWithRetry(task.dir, dst, retry);
+  dropFromOrder(path.dirname(task.dir), id);
 
   let statusUpdated = false;
   const moved = readTask(dst, id, toDir);
@@ -958,7 +1035,7 @@ function removeStage(tasksRoot, stages, dir) {
   const full = path.join(tasksRoot, dir);
   let folderRemoved = false;
   if (fs.existsSync(full)) {
-    const rest = fs.readdirSync(full).filter((n) => !/^\.(gitkeep|keep|DS_Store)$/i.test(n) && n !== 'desktop.ini');
+    const rest = fs.readdirSync(full).filter((n) => !/^\.(gitkeep|keep|DS_Store|order)$/i.test(n) && n !== 'desktop.ini');
     if (!rest.length) {
       fs.rmSync(full, { recursive: true, force: true });
       folderRemoved = true;
@@ -1614,6 +1691,12 @@ module.exports = {
   readTitle,
   readTask,
   scanTasks,
+  readOrder,
+  writeOrder,
+  stageOrder,
+  placeTask,
+  dropFromOrder,
+  ORDER_FILE,
   findTask,
   moveTask,
   renameWithRetry,

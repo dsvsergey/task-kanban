@@ -19,6 +19,7 @@ Plain JavaScript, no dependencies and no build step — VS Code loads the folder
 └── Tasks/
     ├── _template/          ← new task template (`<номер>` in its files is replaced with the task number)
     ├── 1_new/  2_queue/  3_work/  4_testing/  5_done/   ← stages
+    │   ├── .order          ← card order in the column (priority), optional
     │   └── <number>/
     │       ├── task.md     ← description; a "- **Статус:** …" line or a "## Статус" section (status)
     │       ├── notes.md
@@ -227,6 +228,11 @@ its own `task.md` and column, dragged on its own. The link is kept by wiki links
 - `+ Задача` (+ Task) creates the folder in the project's first column from its template and writes the project
   into the Projects line; on the «All tasks» board the project is asked for.
 - Drag a card to another column to move the task.
+- **Card order = priority.** Drag a card up or down within its column (a line shows where it will land) — the most
+  important tasks go to the top. Dropping into another column also places the card at the drop point. The order is
+  kept in the stage folder's `.order` file (task numbers top to bottom, one per line; `#` starts a comment; you can
+  edit it by hand); tasks not listed there follow the listed ones, by number. Moving or deleting a task removes it
+  from the source column's `.order`; an empty order deletes the file.
 - Click a card to open `task.md`; ✎ opens `notes.md`; 📁 reveals the folder in the Explorer.
 - 🗑 on a card deletes the task: after confirmation the task folder goes to the Recycle Bin (restore it from there);
   if the Recycle Bin is unavailable, permanent deletion is offered. The `[[number]]` item is removed from the parent

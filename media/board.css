@@ -149,6 +149,14 @@ button.secondary:hover {
 .card.dragging {
   opacity: 0.5;
 }
+/* місце, куди впаде картка (порядок у колонці = пріоритет) */
+.drop-marker {
+  height: 0;
+  margin: -2px 0;
+  border-top: 2px solid var(--vscode-focusBorder);
+  border-radius: 1px;
+  pointer-events: none;
+}
 
 .card-head {
   display: flex;

@@ -98,6 +98,20 @@
     return cols;
   }
 
+  // перетягування: dragId — картка, яку тягнуть (у dragover dataTransfer не читається); marker — лінія місця вставки
+  let dragId = null;
+  const marker = el('div', 'drop-marker');
+
+  /** Картка списку, перед якою впаде перетягувана (за серединою картки по вертикалі); null — у кінець. */
+  function dropRef(list, y) {
+    for (const c of list.querySelectorAll(':scope > .card')) {
+      if (c.dataset.id === dragId) continue;
+      const r = c.getBoundingClientRect();
+      if (y < r.top + r.height / 2) return c;
+    }
+    return null;
+  }
+
   function isCollapsed(c) {
     if (collapsed && Object.prototype.hasOwnProperty.call(collapsed, c.dir)) return collapsed[c.dir];
     return c.defCollapsed;
@@ -246,9 +260,14 @@
     c.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/plain', t.id);
       e.dataTransfer.effectAllowed = 'move';
+      dragId = t.id;
       c.classList.add('dragging');
     });
-    c.addEventListener('dragend', () => c.classList.remove('dragging'));
+    c.addEventListener('dragend', () => {
+      c.classList.remove('dragging');
+      dragId = null;
+      marker.remove();
+    });
     return c;
   }
 
@@ -317,17 +336,37 @@
           if (state.busy) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = 'move';
-          section.classList.add('drop');
+          const t = state.tasks.find((x) => x.id === dragId);
+          section.classList.toggle('drop', !!t && t.stage !== col.dir);
+          // місце вставки — лінія між картками (у згорнутій колонці — просто в кінець)
+          if (!isC) {
+            const ref = dropRef(list, e.clientY);
+            if (ref ? marker.nextSibling !== ref : marker.parentNode !== list || marker.nextSibling) list.insertBefore(marker, ref);
+          }
         });
         section.addEventListener('dragleave', (e) => {
-          if (!section.contains(e.relatedTarget)) section.classList.remove('drop');
+          if (!section.contains(e.relatedTarget)) {
+            section.classList.remove('drop');
+            if (marker.parentNode === list) marker.remove();
+          }
         });
         section.addEventListener('drop', (e) => {
           e.preventDefault();
           section.classList.remove('drop');
-          const id = e.dataTransfer.getData('text/plain');
+          marker.remove();
+          const id = e.dataTransfer.getData('text/plain') || dragId;
           const t = state.tasks.find((x) => x.id === id);
-          if (t && t.stage !== col.dir) vscode.postMessage({ type: 'move', id, to: col.dir });
+          if (!t) return;
+          const ref = isC ? null : dropRef(list, e.clientY);
+          const before = ref ? ref.dataset.id : null;
+          if (t.stage !== col.dir) {
+            vscode.postMessage({ type: 'move', id, to: col.dir, before });
+            return;
+          }
+          // та сама колонка — змінити порядок (пріоритет), якщо місце справді інше
+          const ids = Array.from(list.querySelectorAll(':scope > .card')).map((c) => c.dataset.id);
+          const next = ids[ids.indexOf(id) + 1] || null;
+          if (before !== next) vscode.postMessage({ type: 'reorder', id, dir: col.dir, before });
         });
       }
       board.appendChild(section);

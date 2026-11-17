@@ -863,3 +863,50 @@ test('налаштування промптів переходу: transitionRule
   assert.equal(core.transitionPromptLabel({ use: 'Перевірка', title: 'Моя' }), 'Моя (↪ Перевірка)');
   assert.equal(core.transitionPromptLabel({ text: 'рядок 1\nрядок 2' }), 'рядок 1');
 });
+
+test('порядок карток у колонці: .order, placeTask, прибирання при перенесенні і видаленні', async () => {
+  const root = tmp();
+  for (const id of ['00003', '00001', '00010', '00002']) write(path.join(root, '3_work', id, 'task.md'), `# Task ${id}\n\n- **Статус:** в роботі\n`);
+  write(path.join(root, '1_new', '00005', 'task.md'), '# Task 00005\n');
+  const col = (dir) => core.scanTasks(root, STAGES).filter((t) => t.stage === dir).map((t) => t.id);
+  const work = path.join(root, '3_work');
+
+  // без файла — за номером
+  assert.deepEqual(col('3_work'), ['00001', '00002', '00003', '00010']);
+  assert.deepEqual(core.readOrder(work), []);
+
+  // файл: перелічені — першими, решта — за номером; коментарі, дублікати, зниклі номери ігноруються
+  write(path.join(work, '.order'), '00010\r\n# коментар\n00099\n00003 # важлива\n00010\n');
+  assert.deepEqual(core.readOrder(work), ['00010', '00099', '00003']);
+  assert.deepEqual(col('3_work'), ['00010', '00003', '00001', '00002']);
+  assert.deepEqual(core.stageOrder(work), ['00010', '00003', '00001', '00002']);
+
+  // переставити: перед іншою, у кінець, невідомий before — у кінець
+  assert.deepEqual(core.placeTask(work, '00002', '00010'), ['00002', '00010', '00003', '00001']);
+  assert.equal(fs.readFileSync(path.join(work, '.order'), 'utf8'), '00002\n00010\n00003\n00001\n');
+  assert.deepEqual(col('3_work'), ['00002', '00010', '00003', '00001']);
+  assert.deepEqual(core.placeTask(work, '00002', null), ['00010', '00003', '00001', '00002']);
+  assert.deepEqual(core.placeTask(work, '00010', 'немає'), ['00003', '00001', '00002', '00010']);
+  assert.throws(() => core.placeTask(work, '00005', null), /00005/);
+
+  // перенесення в іншу колонку — номер зникає з .order джерела; у колонці призначення ставиться placeTask
+  await core.moveTask(root, STAGES, '00001', '1_new');
+  assert.deepEqual(core.readOrder(work), ['00003', '00002', '00010']);
+  core.placeTask(path.join(root, '1_new'), '00001', '00005');
+  assert.deepEqual(col('1_new'), ['00001', '00005']);
+  const t = core.scanTasks(root, STAGES).find((x) => x.id === '00003');
+  await core.moveTaskToRoot(t, root, STAGES[2]);
+  assert.deepEqual(core.readOrder(work), ['00002', '00010']);
+
+  // видалення задачі
+  await core.deleteTaskDir(path.join(work, '00002'));
+  assert.deepEqual(core.readOrder(work), ['00010']);
+  await core.deleteTaskDir(path.join(work, '00010'));
+  assert.equal(fs.existsSync(path.join(work, '.order')), false, 'порожній порядок — файл видаляється');
+
+  // порожня колонка з лише .order видаляється разом з каталогом
+  write(path.join(root, '4_testing', '.order'), '00009\n');
+  fs.renameSync(path.join(root, '4_testing', '00003'), path.join(root, '1_new', '00003'));
+  const r = core.removeStage(root, STAGES, '4_testing');
+  assert.equal(r.folderRemoved, true);
+});
